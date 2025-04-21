@@ -66,6 +66,29 @@ CREATE TABLE IF NOT EXISTS interviews (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create chat_sessions table
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
+    candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
+    fit_score INTEGER CHECK (fit_score >= 0 AND fit_score <= 100),
+    summary_recruiter TEXT,
+    summary_candidate TEXT,
+    chat_transcript JSONB,
+    attachments JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create messages table
+CREATE TABLE IF NOT EXISTS messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    chat_session_id UUID REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('assistant', 'user')),
+    content TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create RLS policies
 ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
@@ -73,6 +96,8 @@ ALTER TABLE personas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE candidates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE interviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 
 -- Create policies
 CREATE POLICY "Companies are viewable by everyone" ON companies
@@ -111,4 +136,39 @@ CREATE POLICY "Interviews are viewable by candidates and companies" ON interview
         )
       )
     )
-  ); 
+  );
+
+-- Policies for chat_sessions
+CREATE POLICY "Candidates can view their own chat sessions"
+    ON chat_sessions FOR SELECT
+    USING (auth.uid() = candidate_id);
+
+CREATE POLICY "Candidates can create chat sessions"
+    ON chat_sessions FOR INSERT
+    WITH CHECK (auth.uid() = candidate_id);
+
+-- Policies for messages
+CREATE POLICY "Candidates can view their own messages"
+    ON messages FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM chat_sessions
+            WHERE chat_sessions.id = messages.chat_session_id
+            AND chat_sessions.candidate_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Candidates can insert messages"
+    ON messages FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM chat_sessions
+            WHERE chat_sessions.id = messages.chat_session_id
+            AND chat_sessions.candidate_id = auth.uid()
+        )
+    );
+
+-- Add indexes for better query performance
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_role_id ON chat_sessions(role_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_candidate_id ON chat_sessions(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_messages_chat_session_id ON messages(chat_session_id); 

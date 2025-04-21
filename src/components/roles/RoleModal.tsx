@@ -1,94 +1,114 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Modal } from '@/components/ui/Modal';
+import React from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ChatWithPersona } from './ChatWithPersona';
 import { QuickApplyForm } from './QuickApplyForm';
 
-interface RoleModalProps {
-  role: {
-    id: string;
-    title: string;
-    description: string;
-    expectations: string[];
-    work_culture: string;
-    persona: {
-      name: string;
-      mode: 'structured' | 'conversational';
-      tone: string;
-    };
-  };
-  isOpen: boolean;
-  onClose: () => void;
+interface Role {
+  id: string;
+  title: string;
+  location?: string;
+  level: string;
+  tags: string[];
+  description: string;
+  requirements: string[];
+  responsibilities: string[];
+  company_id: string;
+  company_name?: string;
+  conversation_mode: 'structured' | 'conversational';
+  expected_response_length: string;
 }
 
-export function RoleModal({ role, isOpen, onClose }: RoleModalProps) {
-  const [activeTab, setActiveTab] = useState<'details' | 'chat' | 'apply'>('details');
+interface RoleModalProps {
+  role: Role;
+  isOpen: boolean;
+  onClose: () => void;
+  activeTab: 'details' | 'chat' | 'apply';
+  onTabChange: (tab: 'details' | 'chat' | 'apply') => void;
+}
 
+export function RoleModal({ role, isOpen, onClose, activeTab, onTabChange }: RoleModalProps) {
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={role.title}>
-      <div className="flex space-x-4 mb-6">
-        <Button
-          variant={activeTab === 'details' ? 'default' : 'outline'}
-          onClick={() => setActiveTab('details')}
-        >
-          Role Details
-        </Button>
-        <Button
-          variant={activeTab === 'chat' ? 'default' : 'outline'}
-          onClick={() => setActiveTab('chat')}
-        >
-          Chat with {role.persona.name}
-        </Button>
-        <Button
-          variant={activeTab === 'apply' ? 'default' : 'outline'}
-          onClick={() => setActiveTab('apply')}
-        >
-          Quick Apply
-        </Button>
-      </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-2xl font-bold">{role.title}</DialogTitle>
+        </DialogHeader>
 
-      {activeTab === 'details' && (
-        <div className="space-y-6">
-          <Card>
-            <div className="p-6">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">About the Role</h3>
-              <p className="text-slate-700 whitespace-pre-line">{role.description}</p>
-            </div>
-          </Card>
+        <div className="flex gap-4 mb-6">
+          <Button
+            variant={activeTab === 'details' ? 'default' : 'outline'}
+            onClick={() => onTabChange('details')}
+          >
+            Role Details
+          </Button>
+          <Button
+            variant={activeTab === 'chat' ? 'default' : 'outline'}
+            onClick={() => onTabChange('chat')}
+          >
+            Chat with Persona
+          </Button>
+          <Button
+            variant={activeTab === 'apply' ? 'default' : 'outline'}
+            onClick={() => onTabChange('apply')}
+          >
+            Quick Apply
+          </Button>
+        </div>
 
-          <Card>
-            <div className="p-6">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Key Expectations</h3>
-              <ul className="list-disc list-inside space-y-2 text-slate-700">
-                {role.expectations.map((expectation, index) => (
-                  <li key={index}>{expectation}</li>
+        {activeTab === 'details' && (
+          <div className="space-y-6">
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold mb-4">About the Role</h3>
+              <p className="text-slate-600">{role.description}</p>
+            </Card>
+
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold mb-4">Requirements</h3>
+              <ul className="list-disc list-inside space-y-2 text-slate-600">
+                {role.requirements.map((req, index) => (
+                  <li key={index}>{req}</li>
                 ))}
               </ul>
+            </Card>
+
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold mb-4">Responsibilities</h3>
+              <ul className="list-disc list-inside space-y-2 text-slate-600">
+                {role.responsibilities.map((resp, index) => (
+                  <li key={index}>{resp}</li>
+                ))}
+              </ul>
+            </Card>
+
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold">Location</h3>
+                <p className="text-gray-600">{role.location || 'Remote'}</p>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">Level</h3>
+                <p className="text-gray-600">{role.level}</p>
+              </div>
             </div>
-          </Card>
+          </div>
+        )}
 
-          <Card>
-            <div className="p-6">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Work Culture</h3>
-              <p className="text-slate-700 whitespace-pre-line">{role.work_culture}</p>
-            </div>
-          </Card>
-        </div>
-      )}
+        {activeTab === 'chat' && (
+          <ChatWithPersona
+            roleId={role.id}
+            mode={role.conversation_mode}
+            expectedResponseLength={role.expected_response_length}
+          />
+        )}
 
-      {activeTab === 'chat' && (
-        <ChatWithPersona 
-          roleId={role.id}
-          persona={role.persona}
-        />
-      )}
-
-      {activeTab === 'apply' && (
-        <QuickApplyForm roleId={role.id} />
-      )}
-    </Modal>
+        {activeTab === 'apply' && (
+          <QuickApplyForm roleId={role.id} />
+        )}
+      </DialogContent>
+    </Dialog>
   );
 } 

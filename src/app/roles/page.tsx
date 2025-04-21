@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { createClient } from '../../lib/supabase/client';
+import { useToast } from '@/components/ui/use-toast';
+import { supabase } from '@/lib/supabase/client';
 import { RoleCard } from '@/components/roles/RoleCard';
 import { RoleModal } from '@/components/roles/RoleModal';
 import { Button } from '@/components/ui/Button';
@@ -10,7 +11,7 @@ import { Input } from '@/components/ui/Input';
 interface Role {
   id: string;
   title: string;
-  location: string;
+  location?: string;
   level: string;
   tags: string[];
   description: string;
@@ -22,18 +23,14 @@ interface Role {
   expected_response_length: string;
 }
 
-interface Company {
-  id: string;
-  name: string;
-}
-
 export default function RolesPage() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+  const [activeTab, setActiveTab] = useState<'details' | 'chat' | 'apply'>('details');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const supabase = createClient();
+  const { toast } = useToast();
 
   useEffect(() => {
     fetchRoles();
@@ -41,60 +38,41 @@ export default function RolesPage() {
 
   const fetchRoles = async () => {
     try {
-      console.log('Fetching roles...');
       const { data: rolesData, error: rolesError } = await supabase
         .from('roles')
         .select('*');
 
-      if (rolesError) {
-        console.error('Supabase roles error:', rolesError);
-        throw rolesError;
-      }
-
-      console.log('Fetched roles:', rolesData);
-
-      if (!rolesData || rolesData.length === 0) {
-        console.log('No roles found');
-        setRoles([]);
-        return;
-      }
+      if (rolesError) throw rolesError;
 
       // Fetch company names
-      const companyIds = rolesData.map((role: Role) => role.company_id);
+      const companyIds = rolesData.map(role => role.company_id);
       const { data: companiesData, error: companiesError } = await supabase
         .from('companies')
         .select('id, name')
         .in('id', companyIds);
 
-      if (companiesError) {
-        console.error('Supabase companies error:', companiesError);
-        throw companiesError;
-      }
+      if (companiesError) throw companiesError;
 
-      const companyMap = new Map((companiesData as Company[] || []).map(company => [company.id, company.name]));
-
-      const formattedRoles = rolesData.map((role: Role) => ({
-        id: role.id,
-        title: role.title,
-        location: role.location,
-        level: role.level,
-        tags: role.tags || [],
-        description: role.description || '',
+      // Map company names to roles
+      const rolesWithCompanies = rolesData.map(role => ({
+        ...role,
+        company_name: companiesData.find(company => company.id === role.company_id)?.name || 'Unknown Company',
+        conversation_mode: role.conversation_mode as 'structured' | 'conversational',
         requirements: role.requirements || [],
-        responsibilities: role.responsibilities || [],
-        company_id: role.company_id,
-        company_name: companyMap.get(role.company_id) || 'Unknown Company',
-        conversation_mode: role.conversation_mode || 'structured',
-        expected_response_length: role.expected_response_length || '1-2 paragraphs'
+        responsibilities: role.responsibilities || []
       }));
 
-      console.log('Formatted roles:', formattedRoles);
-      setRoles(formattedRoles);
+      setRoles(rolesWithCompanies);
     } catch (error) {
       console.error('Error fetching roles:', error);
-      setError('Failed to load roles. Please try again later.');
+      setError('Failed to load roles');
+      toast({
+        title: 'Error',
+        description: 'Failed to load roles. Please try again later.',
+        variant: 'destructive',
+      });
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
@@ -105,12 +83,22 @@ export default function RolesPage() {
     role.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
+  const handleChat = (role: Role) => {
+    setSelectedRole(role);
+    setActiveTab('chat');
+  };
+
+  const handleApply = (role: Role) => {
+    setSelectedRole(role);
+    setActiveTab('apply');
+  };
+
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+
   if (error) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center text-red-500">{error}</div>
-      </div>
-    );
+    return <div>{error}</div>;
   }
 
   return (
@@ -129,7 +117,7 @@ export default function RolesPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[...Array(6)].map((_, i) => (
             <div key={i} className="animate-pulse">
@@ -149,12 +137,19 @@ export default function RolesPage() {
               role={{
                 id: role.id,
                 title: role.title,
-                location: role.location,
-                department: role.level,
-                company_name: role.company_name || 'Unknown Company',
-                traits: role.tags
+                description: role.description,
+                company_name: role.company_name,
+                level: role.level,
+                tags: role.tags,
+                conversation_mode: role.conversation_mode,
+                expected_response_length: role.expected_response_length
               }}
-              onClick={() => setSelectedRole(role)}
+              onClick={() => {
+                setSelectedRole(role);
+                setActiveTab('details');
+              }}
+              onChat={() => handleChat(role)}
+              onApply={() => handleApply(role)}
             />
           ))}
         </div>
@@ -162,20 +157,11 @@ export default function RolesPage() {
 
       {selectedRole && (
         <RoleModal
-          role={{
-            id: selectedRole.id,
-            title: selectedRole.title,
-            description: selectedRole.description,
-            expectations: selectedRole.requirements,
-            work_culture: selectedRole.responsibilities.join('\n'),
-            persona: {
-              name: 'Maya',
-              mode: selectedRole.conversation_mode,
-              tone: 'professional'
-            }
-          }}
+          role={selectedRole}
           isOpen={!!selectedRole}
           onClose={() => setSelectedRole(null)}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
         />
       )}
     </div>

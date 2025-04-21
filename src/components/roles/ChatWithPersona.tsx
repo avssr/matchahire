@@ -1,17 +1,16 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Card } from '@/components/ui/Card';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { useToast } from '@/components/ui/use-toast';
+import { supabase } from '@/lib/supabase/client';
 
 interface ChatWithPersonaProps {
   roleId: string;
-  persona: {
-    name: string;
-    mode: 'structured' | 'conversational';
-    tone: string;
-  };
+  mode: string;
+  expectedResponseLength: string;
+  resumeContent?: string;
 }
 
 interface Message {
@@ -19,11 +18,17 @@ interface Message {
   content: string;
 }
 
-export function ChatWithPersona({ roleId, persona }: ChatWithPersonaProps) {
+export function ChatWithPersona({
+  roleId,
+  mode,
+  expectedResponseLength,
+  resumeContent,
+}: ChatWithPersonaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -37,9 +42,9 @@ export function ChatWithPersona({ roleId, persona }: ChatWithPersonaProps) {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    const userMessage = input.trim();
+    const userMessage = { role: 'user' as const, content: input.trim() };
+    setMessages((prev) => [...prev, userMessage]);
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
 
     try {
@@ -49,39 +54,48 @@ export function ChatWithPersona({ roleId, persona }: ChatWithPersonaProps) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          messages: [...messages, userMessage],
           roleId,
-          message: userMessage,
-          persona,
-          conversationHistory: messages,
+          resumeContent,
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to get response');
+      if (!response.ok) {
+        throw new Error('Failed to get response');
+      }
 
-      const data = await response.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.message }]);
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No reader available');
+
+      let assistantMessage = '';
+      setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const text = new TextDecoder().decode(value);
+        assistantMessage += text;
+        setMessages((prev) => {
+          const newMessages = [...prev];
+          newMessages[newMessages.length - 1].content = assistantMessage;
+          return newMessages;
+        });
+      }
     } catch (error) {
       console.error('Chat error:', error);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Sorry, I encountered an error. Please try again.' 
-      }]);
+      toast({
+        title: 'Error',
+        description: 'Failed to send message. Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <Card className="h-[600px] flex flex-col">
-      <div className="p-4 border-b">
-        <h3 className="text-lg font-semibold text-slate-900">
-          Chat with {persona.name}
-        </h3>
-        <p className="text-sm text-slate-600">
-          {persona.mode === 'structured' ? 'Structured Interview Mode' : 'Conversational Mode'}
-        </p>
-      </div>
-
+    <div className="flex flex-col h-[500px]">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message, index) => (
           <div
@@ -94,37 +108,29 @@ export function ChatWithPersona({ roleId, persona }: ChatWithPersonaProps) {
               className={`max-w-[80%] rounded-lg p-3 ${
                 message.role === 'user'
                   ? 'bg-blue-500 text-white'
-                  : 'bg-slate-100 text-slate-900'
+                  : 'bg-gray-100 text-gray-900'
               }`}
             >
               {message.content}
             </div>
           </div>
         ))}
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-slate-100 text-slate-900 rounded-lg p-3">
-              {persona.name} is typing...
-            </div>
-          </div>
-        )}
         <div ref={messagesEndRef} />
       </div>
-
       <form onSubmit={handleSubmit} className="p-4 border-t">
-        <div className="flex space-x-2">
-          <Input
+        <div className="flex gap-2">
+          <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={`Message ${persona.name}...`}
+            placeholder="Type your message..."
             className="flex-1"
             disabled={isLoading}
           />
           <Button type="submit" disabled={isLoading}>
-            Send
+            {isLoading ? 'Sending...' : 'Send'}
           </Button>
         </div>
       </form>
-    </Card>
+    </div>
   );
 } 
