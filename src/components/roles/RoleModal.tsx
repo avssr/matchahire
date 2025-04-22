@@ -4,7 +4,7 @@ import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { Button } from '@/components/client/ui/Button';
 import { Card } from '@/components/client/ui/Card';
-import { ChatWithPersona } from './ChatWithPersona';
+import ChatWithPersona from './ChatWithPersona';
 import { QuickApplyForm } from './QuickApplyForm';
 
 interface Role {
@@ -46,7 +46,7 @@ export function RoleModal({ role, isOpen, onClose, activeTab, onTabChange }: Rol
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold">{role.title}</DialogTitle>
           <DialogDescription id="role-description">
-            View role details, chat with an AI persona, or apply quickly
+            {role.description || 'View role details, chat with an AI persona, or apply quickly'}
           </DialogDescription>
         </DialogHeader>
 

@@ -2,19 +2,20 @@
 
 import React, { useEffect, useState } from 'react';
 import { useToast } from '@/components/ui/use-toast';
-import { supabase } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/client';
 import { RoleCard } from '@/components/roles/RoleCard';
 import { RoleModal } from '@/components/roles/RoleModal';
 import { Button } from '@/components/client/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Loader2 } from 'lucide-react';
 
 interface Role {
   id: string;
   title: string;
+  description: string;
   location: string;
   level: string;
   tags: string[];
-  description: string;
   requirements: string[];
   responsibilities: string[];
   company_id: string;
@@ -31,6 +32,7 @@ export default function RolesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const supabase = createClient();
 
   useEffect(() => {
     fetchRoles();
@@ -38,11 +40,24 @@ export default function RolesPage() {
 
   const fetchRoles = async () => {
     try {
+      setLoading(true);
+      setError(null);
+
+      // Check authentication
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      if (authError) throw authError;
+
+      // Fetch roles
       const { data: rolesData, error: rolesError } = await supabase
         .from('roles')
         .select('*');
 
       if (rolesError) throw rolesError;
+
+      if (!rolesData || rolesData.length === 0) {
+        setRoles([]);
+        return;
+      }
 
       // Fetch company names
       const companyIds = rolesData.map(role => role.company_id);
@@ -56,7 +71,7 @@ export default function RolesPage() {
       // Map company names to roles
       const rolesWithCompanies = rolesData.map(role => ({
         ...role,
-        company_name: companiesData.find(company => company.id === role.company_id)?.name || 'Unknown Company',
+        company_name: companiesData?.find(company => company.id === role.company_id)?.name || 'Unknown Company',
         conversation_mode: role.conversation_mode as 'structured' | 'conversational',
         requirements: role.requirements || [],
         responsibilities: role.responsibilities || []
@@ -68,7 +83,7 @@ export default function RolesPage() {
       setError('Failed to load roles');
       toast({
         title: 'Error',
-        description: 'Failed to load roles. Please try again later.',
+        description: error instanceof Error ? error.message : 'Failed to load roles. Please try again later.',
         variant: 'destructive',
       });
     } finally {
@@ -94,11 +109,20 @@ export default function RolesPage() {
   };
 
   if (loading) {
-    return <div>Loading...</div>;
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   if (error) {
-    return <div>{error}</div>;
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen space-y-4">
+        <p className="text-destructive">{error}</p>
+        <Button onClick={fetchRoles}>Retry</Button>
+      </div>
+    );
   }
 
   return (
@@ -117,15 +141,7 @@ export default function RolesPage() {
         </div>
       </div>
 
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="animate-pulse">
-              <div className="h-64 bg-slate-100 rounded-lg" />
-            </div>
-          ))}
-        </div>
-      ) : filteredRoles.length === 0 ? (
+      {filteredRoles.length === 0 ? (
         <div className="text-center text-slate-600">
           {searchQuery ? 'No roles match your search.' : 'No open roles at the moment.'}
         </div>

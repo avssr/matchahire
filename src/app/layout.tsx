@@ -5,6 +5,7 @@ import { Header } from "@/components/client/layout/Header";
 import { Footer } from "@/components/client/layout/Footer";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Toaster } from '@/components/ui/toaster';
+import { ChatProvider } from '@/lib/chat/context';
 
 const spaceGrotesk = Space_Grotesk({ 
   subsets: ["latin"],
@@ -67,12 +68,16 @@ export default function RootLayout({
     <html lang="en" className={`${spaceGrotesk.variable} ${inter.variable}`} suppressHydrationWarning>
       <body className="min-h-screen bg-background font-sans antialiased">
         <ErrorBoundary>
-          <Header />
-          <main className="flex-1">
-            {children}
-          </main>
-          <Footer />
-          <Toaster />
+          <ChatProvider>
+            <div className="flex flex-col min-h-screen">
+              <Header />
+              <main className="flex-1">
+                {children}
+              </main>
+              <Footer />
+              <Toaster />
+            </div>
+          </ChatProvider>
         </ErrorBoundary>
       </body>
     </html>

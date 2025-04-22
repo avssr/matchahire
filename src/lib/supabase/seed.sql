@@ -7,12 +7,14 @@ VALUES (
 );
 
 -- Insert roles
-INSERT INTO roles (company_id, title, description, location, requirements, responsibilities)
+INSERT INTO roles (company_id, title, description, level, location, tags, requirements, responsibilities, conversation_mode, expected_response_length)
 SELECT 
   id,
   'Senior Frontend Developer',
   'Join our team to build the future of AI-powered hiring.',
+  'Senior',
   'Remote',
+  ARRAY['React', 'TypeScript', 'Next.js', 'Tailwind CSS'],
   ARRAY[
     '5+ years of experience with React and TypeScript',
     'Strong understanding of modern web development practices',
@@ -22,16 +24,20 @@ SELECT
     'Develop and maintain the MatchaHire platform',
     'Implement AI-powered features and integrations',
     'Collaborate with the design team to create beautiful user experiences'
-  ]
+  ],
+  'structured',
+  'medium'
 FROM companies
 WHERE name = 'SmartJoules';
 
-INSERT INTO roles (company_id, title, description, location, requirements, responsibilities)
+INSERT INTO roles (company_id, title, description, level, location, tags, requirements, responsibilities, conversation_mode, expected_response_length)
 SELECT 
   id,
   'Product Designer',
   'Design intuitive experiences for our AI hiring platform.',
+  'Mid-Senior',
   'Remote',
+  ARRAY['UI/UX', 'Figma', 'Design Systems'],
   ARRAY[
     '3+ years of product design experience',
     'Strong portfolio of web applications',
@@ -41,16 +47,20 @@ SELECT
     'Design user interfaces for the MatchaHire platform',
     'Create and maintain design systems',
     'Conduct user research and testing'
-  ]
+  ],
+  'conversational',
+  'medium'
 FROM companies
 WHERE name = 'SmartJoules';
 
-INSERT INTO roles (company_id, title, description, location, requirements, responsibilities)
+INSERT INTO roles (company_id, title, description, level, location, tags, requirements, responsibilities, conversation_mode, expected_response_length)
 SELECT 
   id,
   'Backend Engineer',
   'Build scalable backend systems for our AI platform.',
+  'Senior',
   'Remote',
+  ARRAY['Node.js', 'TypeScript', 'PostgreSQL', 'Redis'],
   ARRAY[
     '5+ years of backend development experience',
     'Strong knowledge of Node.js and TypeScript',
@@ -60,16 +70,20 @@ SELECT
     'Develop and maintain backend services',
     'Implement data processing pipelines',
     'Ensure system reliability and performance'
-  ]
+  ],
+  'structured',
+  'medium'
 FROM companies
 WHERE name = 'SmartJoules';
 
-INSERT INTO roles (company_id, title, description, location, requirements, responsibilities)
+INSERT INTO roles (company_id, title, description, level, location, tags, requirements, responsibilities, conversation_mode, expected_response_length)
 SELECT 
   id,
   'AI Engineer',
   'Develop and optimize our AI models for hiring.',
+  'Mid-Senior',
   'Remote',
+  ARRAY['Python', 'Machine Learning', 'NLP', 'LLMs'],
   ARRAY[
     '3+ years of experience with machine learning',
     'Strong Python programming skills',
@@ -79,7 +93,9 @@ SELECT
     'Develop and train AI models for hiring',
     'Optimize model performance and accuracy',
     'Implement AI-powered features'
-  ]
+  ],
+  'structured',
+  'medium'
 FROM companies
 WHERE name = 'SmartJoules';
 

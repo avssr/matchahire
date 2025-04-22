@@ -1,465 +1,482 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/client/ui/Button';
-import { Textarea } from '@/components/ui/Textarea';
-import { useToast } from '@/components/ui/use-toast';
-import { supabase } from '@/lib/supabase/client';
-import { Loader2, Send, AlertCircle, RefreshCw, Paperclip, X, CheckCircle2, MessageSquare, FileText, Image, File, ChevronRight } from 'lucide-react';
-import { usePathname } from 'next/navigation';
-import { toast, type ToastT } from 'sonner';
 import { Input } from '@/components/ui/Input';
+import { useToast } from '@/components/ui/use-toast';
+import { Loader2, Send, Upload, X } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { useChatStore, type ConversationMode } from '@/lib/chat/context';
-import { ChatMessage } from '@/components/client/ui/ChatMessage';
-import { FileUpload } from '@/components/client/ui/FileUpload';
+import { useChat } from '@/lib/chat/context';
+import { Message, ConversationMode } from '@/types/chat';
+import { DialogContent } from '@/components/ui/Dialog';
+
+interface ChatMessageProps {
+  content: string;
+  role: 'user' | 'assistant';
+  timestamp?: string;
+  attachments?: string[];
+  status?: 'sending' | 'delivered' | 'error';
+}
+
+function ChatMessage({
+  content,
+  role,
+  timestamp,
+  attachments,
+  status
+}: ChatMessageProps) {
+  return (
+    <div
+      className={cn(
+        'flex mb-4',
+        role === 'user' ? 'justify-end' : 'justify-start'
+      )}
+    >
+      <div
+        className={cn(
+          'max-w-[80%] rounded-lg p-3',
+          role === 'user'
+            ? 'bg-primary text-primary-foreground'
+            : 'bg-muted'
+        )}
+      >
+        <div className="whitespace-pre-wrap">{content}</div>
+        {attachments && attachments.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {attachments.map((fileName, index) => (
+              <div key={index} className="text-sm opacity-75">
+                📎 {fileName}
+              </div>
+            ))}
+          </div>
+        )}
+        {timestamp && (
+          <div className="mt-1 text-xs opacity-50">
+            {new Date(timestamp).toLocaleTimeString()}
+          </div>
+        )}
+        {status && (
+          <div className="mt-1 text-xs opacity-50">
+            {status === 'sending' && '⏳ Sending...'}
+            {status === 'delivered' && '✓ Delivered'}
+            {status === 'error' && '❌ Error'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface FileUploadProps {
+  onFileSelect: (file: File) => void;
+  onFileRemove: () => void;
+  accept?: string;
+  maxSize?: number;
+  className?: string;
+  selectedFile?: File | null;
+  id?: string;
+  name?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+}
+
+function FileUpload({
+  onFileSelect,
+  onFileRemove,
+  accept = '.pdf,.doc,.docx',
+  maxSize = 5 * 1024 * 1024, // 5MB
+  className,
+  selectedFile,
+  id,
+  name,
+  disabled,
+  ariaLabel
+}: FileUploadProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFile = async (file: File) => {
+    if (file.size > maxSize) {
+      alert(`File size must be less than ${maxSize / 1024 / 1024}MB`);
+      return;
+    }
+    setIsUploading(true);
+    try {
+      await onFileSelect(file);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      handleFile(e.target.files[0]);
+    }
+  };
+
+  return (
+    <div className={cn('relative', className)}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={accept}
+        onChange={handleChange}
+        className="hidden"
+        id={id}
+        name={name}
+        disabled={disabled || isUploading}
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={disabled || isUploading}
+      >
+        {isUploading ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : selectedFile ? (
+          <X className="w-4 h-4" onClick={onFileRemove} />
+        ) : (
+          <Upload className="w-4 h-4" />
+        )}
+      </Button>
+    </div>
+  );
+}
 
 interface ChatWithPersonaProps {
   roleId: string;
-  mode: string;
-  expectedResponseLength: string;
+  mode?: ConversationMode;
+  expectedResponseLength?: string;
   resumeContent?: string;
   onSwitchToApply?: () => void;
 }
 
-interface Message {
-  id: string;
-  content: string;
-  role: 'user' | 'assistant';
-  timestamp: string;
-  attachments?: File[];
-  status?: 'sending' | 'delivered' | 'error';
-}
-
-interface FilePreview {
-  name: string;
-  type: string;
-  size: number;
-  preview?: string;
-}
-
-export function ChatWithPersona({
+export default function ChatWithPersona({
   roleId,
-  mode,
-  expectedResponseLength,
+  mode = 'structured',
+  expectedResponseLength = '500',
   resumeContent,
   onSwitchToApply,
 }: ChatWithPersonaProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isInitializing, setIsInitializing] = useState(true);
-  const [attachments, setAttachments] = useState<FilePreview[]>([]);
-  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [roleError, setRoleError] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [currentTopic, setCurrentTopic] = useState<string>('introduction');
+  const [skillScores, setSkillScores] = useState<Record<string, number>>({});
+  const initializationTimeoutRef = useRef<NodeJS.Timeout>();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const { toast } = useToast();
-  const pathname = usePathname();
+  const typingTimeoutRef = useRef<NodeJS.Timeout>();
+  const { messages, session, loading, error, startSession, sendMessage, uploadResume } = useChat();
 
-  const {
-    mode: chatMode,
-    currentStep,
-    totalSteps,
-    collectedInfo,
-    setMode,
-    setCurrentStep,
-    setCollectedInfo,
-    actions
-  } = useChatStore();
+  // Simulate typing indicator
+  const simulateTyping = useCallback(() => {
+    setIsTyping(true);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      setIsTyping(false);
+    }, Math.random() * 1000 + 500);
+  }, []);
 
+  // Handle message analysis and topic progression
+  const analyzeMessage = useCallback((message: string) => {
+    // Extract skills and update scores
+    const skills = extractSkillsFromMessage(message);
+    setSkillScores(prev => {
+      const newScores = { ...prev };
+      skills.forEach(skill => {
+        newScores[skill] = (newScores[skill] || 0) + 1;
+      });
+      return newScores;
+    });
+
+    // Determine if we should move to next topic
+    if (shouldMoveToNextStep(message)) {
+      setCurrentTopic(prev => {
+        switch (prev) {
+          case 'introduction':
+            return 'technical';
+          case 'technical':
+            return 'experience';
+          case 'experience':
+            return 'closing';
+          default:
+            return prev;
+        }
+      });
+    }
+  }, []);
+
+  function extractSkillsFromMessage(message: string): string[] {
+    const technicalSkills = ['programming', 'architecture', 'debugging', 'testing'];
+    const softSkills = ['communication', 'leadership', 'teamwork', 'problem-solving'];
+    
+    const skills: string[] = [];
+    [...technicalSkills, ...softSkills].forEach(skill => {
+      if (message.toLowerCase().includes(skill)) {
+        skills.push(skill);
+      }
+    });
+    
+    return skills;
+  }
+
+  function shouldMoveToNextStep(message: string): boolean {
+    // Check for completion indicators in the message
+    const completionPhrases = [
+      'great, let\'s move on',
+      'thank you for sharing',
+      'i understand',
+      'that\'s helpful'
+    ];
+    
+    return completionPhrases.some(phrase => 
+      message.toLowerCase().includes(phrase)
+    );
+  }
+
+  function getPlaceholderForTopic(topic: string): string {
+    switch (topic) {
+      case 'introduction':
+        return 'Introduce yourself and your background...';
+      case 'technical':
+        return 'Share your technical experience...';
+      case 'experience':
+        return 'Tell me about your relevant work experience...';
+      case 'closing':
+        return 'Any final questions?';
+      default:
+        return 'Type your message...';
+    }
+  }
+
+  const initializeChat = useCallback(async () => {
+    if (isInitializing || session) return;
+    
+    try {
+      setIsInitializing(true);
+      setRoleError(null);
+      await startSession(roleId, mode, expectedResponseLength);
+      setRetryCount(0);
+    } catch (err) {
+      console.error('Error initializing chat:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to initialize chat';
+      setRoleError(errorMessage);
+      
+      if (retryCount < 5) {
+        setRetryCount(prev => prev + 1);
+        if (initializationTimeoutRef.current) {
+          clearTimeout(initializationTimeoutRef.current);
+        }
+        initializationTimeoutRef.current = setTimeout(() => {
+          initializeChat();
+        }, 1000 * Math.pow(2, retryCount));
+      }
+    } finally {
+      setIsInitializing(false);
+    }
+  }, [roleId, mode, expectedResponseLength, startSession, retryCount, isInitializing, session]);
+
+  // Single effect for initialization
   useEffect(() => {
-    const initializeChat = async () => {
-      try {
-        setIsInitializing(true);
-        await actions.startSession(roleId);
-        setIsInitializing(false);
-      } catch (error) {
-        console.error('Failed to initialize chat:', error);
-        setError('Failed to initialize chat session');
-        setIsInitializing(false);
+    if (!session && !isInitializing && !roleError) {
+      initializeChat();
+    }
+
+    return () => {
+      if (initializationTimeoutRef.current) {
+        clearTimeout(initializationTimeoutRef.current);
       }
     };
+  }, [session, initializeChat, isInitializing, roleError]);
 
-    initializeChat();
-  }, [roleId, actions]);
-
+  // Single effect for auto-scrolling and debug logging
   useEffect(() => {
-    // Scroll to bottom when messages change
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-
-    // Validate file types and sizes
-    const validFiles = files.filter(file => {
-      const isValidType = ['application/pdf', 'image/jpeg', 'image/png', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.type);
-      const isValidSize = file.size <= 5 * 1024 * 1024; // 5MB limit
-      
-      if (!isValidType) {
-        toast({ title: 'Invalid file type', description: 'Please upload PDF, DOC, DOCX, JPG, or PNG files only.' });
-        return false;
-      }
-      if (!isValidSize) {
-        toast({ title: 'File too large', description: 'Please upload files smaller than 5MB.' });
-        return false;
-      }
-      return true;
-    });
-
-    if (validFiles.length > 0) {
-      const filePreviews = await Promise.all(validFiles.map(async (file) => {
-        const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
-        return {
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          preview
-        };
-      }));
-      
-      setAttachments(prev => [...prev, ...filePreviews]);
-      toast({ title: 'Files added successfully' });
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Chat state:', { session, messages, roleError });
+    }
+  }, [messages, session, roleError]);
+
+  const handleFileSelect = (file: File) => {
+    setSelectedFile(file);
   };
 
-  const removeAttachment = (index: number) => {
-    setAttachments(prev => {
-      const removed = prev[index];
-      if (removed.preview) URL.revokeObjectURL(removed.preview);
-      return prev.filter((_, i) => i !== index);
-    });
-    toast({ title: 'File removed' });
+  const handleFileRemove = () => {
+    setSelectedFile(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() && attachments.length === 0) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      content: input.trim(),
-      role: 'user',
-      timestamp: new Date().toISOString(),
-      status: 'sending'
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setAttachments([]);
-    setUploadProgress(0);
-    setIsLoading(true);
-    setError(null);
+    if (!input.trim() && !selectedFile) return;
 
     try {
-      // Get the current session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError) {
-        throw new Error('Failed to get session');
+      if (selectedFile) {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        await uploadResume(formData);
+        setSelectedFile(null);
+        analyzeMessage('resume_uploaded');
       }
 
-      const formData = new FormData();
-      formData.append('messages', JSON.stringify([userMessage]));
-      formData.append('roleId', roleId);
-      if (resumeContent) formData.append('resumeContent', resumeContent);
-      if (chatMode) formData.append('mode', chatMode);
-      if (expectedResponseLength) formData.append('expectedResponseLength', expectedResponseLength);
-
-      // Upload files if any
-      if (attachments.length > 0) {
-        for (const file of attachments) {
-          const fileBlob = await fetch(file.preview || '').then(r => r.blob());
-          formData.append('attachments', fileBlob, file.name);
-        }
-      }
-
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session?.access_token || 'default-user-id'}`,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to send message');
-      }
-
-      // Update message status to delivered
-      setMessages(prev => prev.map(msg => 
-        msg.id === userMessage.id ? { ...msg, status: 'delivered' } : msg
-      ));
-
-      setIsTyping(true);
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('Failed to read response');
-
-      let assistantMessage = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = new TextDecoder().decode(value);
-        assistantMessage += chunk;
-        setMessages(prev => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage.role === 'assistant') {
-            return [...prev.slice(0, -1), { ...lastMessage, content: assistantMessage }];
-          }
-          return [...prev, { 
-            id: Date.now().toString(), 
-            content: assistantMessage, 
-            role: 'assistant', 
-            timestamp: new Date().toISOString() 
-          }];
-        });
-      }
-
-      // Update context based on the conversation
-      const info = extractInfoFromMessage(assistantMessage);
-      if (info) {
-        setCollectedInfo({
-          ...collectedInfo,
-          [info.key]: info.value
-        });
-      }
-
-      // Move to next step if appropriate
-      if (shouldMoveToNextStep(assistantMessage)) {
-        setCurrentStep(Math.min(currentStep + 1, totalSteps));
+      if (input.trim()) {
+        // Show typing indicator before sending
+        simulateTyping();
+        
+        // Send message and analyze response
+        await sendMessage(input);
+        analyzeMessage(input);
+        
+        // Clear input and update UI
+        setInput('');
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        
+        // Show typing indicator for AI response
+        simulateTyping();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setMessages(prev => prev.map(msg => 
-        msg.id === userMessage.id ? { ...msg, status: 'error' } : msg
-      ));
-      toast({ title: 'Failed to send message. Please try again.' });
-    } finally {
-      setIsLoading(false);
-      setIsTyping(false);
+      console.error('Error sending message:', err);
+      setRoleError('Failed to send message. Please try again.');
     }
   };
 
-  const handleRetry = () => {
-    setError(null);
-    const lastUserMessage = messages.findLast(m => m.role === 'user');
-    if (lastUserMessage) {
-      setInput(lastUserMessage.content);
-      setAttachments([]);
-      setMessages(prev => prev.filter(m => m.id !== lastUserMessage.id));
-    }
-  };
-
-  const handleFileUpload = async (file: File) => {
-    await actions.uploadResume(file);
-  };
-
-  if (isInitializing) {
+  if (roleError && retryCount >= 5) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-4">
-        <AlertCircle className="w-8 h-8 text-red-500" />
-        <p className="text-red-500">{error}</p>
-        <Button onClick={() => window.location.reload()}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Retry
+      <div className="flex flex-col items-center justify-center h-full p-4">
+        <div className="text-red-500 mb-4">
+          {roleError}
+        </div>
+        <Button
+          onClick={() => {
+            setRetryCount(0);
+            setRoleError(null);
+            initializeChat();
+          }}
+          disabled={isInitializing}
+        >
+          {isInitializing ? 'Retrying...' : 'Retry'}
         </Button>
       </div>
     );
   }
 
-  return (
-    <div className="flex flex-col h-[500px] bg-white rounded-lg shadow-lg border border-slate-200">
-      <div className="flex items-center justify-between p-4 border-b border-slate-200">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-slate-500">Step {currentStep + 1} of {totalSteps}</span>
-          <ChevronRight className="w-4 h-4 text-slate-400" />
-          <span className="text-sm font-medium text-emerald-500 capitalize">{chatMode}</span>
-        </div>
-        {currentStep === totalSteps - 1 && (
-          <Button
-            onClick={onSwitchToApply}
-            className="bg-emerald-500 text-white hover:bg-emerald-600"
-          >
-            Proceed to Application
-          </Button>
-        )}
+  if (loading && !messages.length) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="w-8 h-8 animate-spin" />
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && !error && (
-          <div className="flex flex-col items-center justify-center h-full text-center text-slate-500">
-            <MessageSquare className="w-12 h-12 mb-4 text-emerald-500" />
-            <p className="text-lg font-medium mb-2">Start a conversation</p>
-            <p className="text-sm">Ask about the role, company culture, or application process</p>
-          </div>
-        )}
-        
-        {messages.map((message) => (
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-[500px] bg-background rounded-lg border">
+      {/* Progress Indicator */}
+      <div className="flex justify-between px-4 py-2 bg-muted/50">
+        {['introduction', 'technical', 'experience', 'closing'].map((topic, index) => (
           <div
-            key={message.id}
+            key={topic}
             className={cn(
-              "flex",
-              message.role === 'user' ? 'justify-end' : 'justify-start',
-              message.status === 'error' && 'opacity-75'
+              'flex items-center',
+              topic === currentTopic ? 'text-primary' : 'text-muted-foreground'
             )}
           >
-            <div
-              className={cn(
-                "max-w-[80%] rounded-2xl p-4 relative",
-                message.role === 'user'
-                  ? 'bg-emerald-500 text-white'
-                  : 'bg-slate-100 text-slate-900'
-              )}
-            >
-              <div className="text-sm whitespace-pre-wrap">{message.content}</div>
-              {message.attachments && message.attachments.length > 0 && (
-                <div className="mt-2 space-y-2">
-                  {message.attachments.map((file, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center gap-2 bg-white/10 p-2 rounded-lg"
-                    >
-                      <Paperclip className="w-4 h-4" />
-                      <span className="text-xs truncate">{file.name}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className={cn(
-                "text-xs mt-2 flex items-center gap-2",
-                message.role === 'user' ? 'text-emerald-100' : 'text-slate-500'
-              )}>
-                {new Date(message.timestamp).toLocaleTimeString()}
-                {message.status === 'sending' && (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                )}
-                {message.status === 'delivered' && (
-                  <CheckCircle2 className="w-3 h-3" />
-                )}
-                {message.status === 'error' && (
-                  <AlertCircle className="w-3 h-3 text-red-500" />
-                )}
-              </div>
-            </div>
+            <div className={cn(
+              'w-2 h-2 rounded-full mr-2',
+              topic === currentTopic ? 'bg-primary' : 'bg-muted'
+            )} />
+            {topic}
           </div>
         ))}
-        
-        {isTyping && (
-          <div className="flex items-center gap-2 text-slate-500">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">AI is typing...</span>
+      </div>
+      
+      {/* Messages Area */}
+      <div 
+        className="flex-1 overflow-y-auto p-4 space-y-4"
+        role="log"
+        aria-label="Chat messages"
+        aria-live="polite"
+      >
+        {messages.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-muted-foreground">
+            No messages yet. Start the conversation!
           </div>
-        )}
-        
-        {error && (
-          <div className="flex flex-col items-center justify-center p-4 space-y-4">
-            <AlertCircle className="w-8 h-8 text-red-500" />
-            <p className="text-red-500 text-center">
-              We're having trouble with the chat. Would you like to try again?
-            </p>
-            <div className="flex gap-2">
-              <Button
-                onClick={handleRetry}
-                className="bg-emerald-500 text-white hover:bg-emerald-600"
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Retry
-              </Button>
-              {onSwitchToApply && (
-                <Button
-                  onClick={onSwitchToApply}
-                  className="bg-slate-100 text-slate-900 hover:bg-slate-200"
-                >
-                  Switch to Quick Apply
-                </Button>
-              )}
-            </div>
-          </div>
+        ) : (
+          <>
+            {messages.map((message, index) => (
+              <ChatMessage
+                key={message.id || index}
+                content={message.content}
+                role={message.role}
+                timestamp={message.created_at}
+                attachments={message.attachments}
+                status={message.status}
+              />
+            ))}
+            {isTyping && (
+              <div className="flex items-center space-x-2 p-4 text-muted-foreground">
+                <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            )}
+          </>
         )}
         <div ref={messagesEndRef} />
       </div>
-      
-      <form onSubmit={handleSubmit} className="p-4 border-t border-slate-200">
-        {attachments.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {attachments.map((file, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-2 bg-slate-100 p-2 rounded-lg text-sm"
-              >
-                {file.type.startsWith('image/') ? (
-                  <Image className="w-4 h-4 text-slate-500" />
-                ) : file.type === 'application/pdf' ? (
-                  <FileText className="w-4 h-4 text-slate-500" />
-                ) : (
-                  <File className="w-4 h-4 text-slate-500" />
-                )}
-                <span className="truncate max-w-[150px]">{file.name}</span>
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(index)}
-                  className="text-slate-500 hover:text-red-500"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            className="flex-1"
-            disabled={isLoading}
-          />
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            className="hidden"
-            multiple
-            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => fileInputRef.current?.click()}
-            className="h-[42px] w-[42px] p-0"
-            disabled={isLoading}
-          >
-            <Paperclip className="w-4 h-4" />
-          </Button>
-          <Button
-            type="submit"
-            disabled={isLoading || (!input.trim() && attachments.length === 0)}
-            className="h-[42px] w-[42px] p-0 bg-emerald-500 hover:bg-emerald-600"
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin text-white" />
-            ) : (
-              <Send className="w-4 h-4 text-white" />
-            )}
-          </Button>
-        </div>
-      </form>
 
-      <div className="flex flex-col space-y-4 p-4">
-        <FileUpload onUpload={handleFileUpload} />
-        <div className="flex space-x-2">
-          <Button onClick={() => setCurrentStep(Math.min(currentStep + 1, totalSteps))}>Next</Button>
+      {/* Input Area */}
+      <div className="border-t p-4">
+        <form onSubmit={handleSubmit} className="flex items-center gap-2">
+          <div className="flex-1">
+            <Input
+              id="chat-message-input"
+              name="message"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={getPlaceholderForTopic(currentTopic)}
+              className="w-full"
+              disabled={loading || !session}
+              aria-label="Message input"
+              aria-describedby="chat-status"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <FileUpload
+              id="chat-file-upload"
+              name="file"
+              onFileSelect={handleFileSelect}
+              onFileRemove={handleFileRemove}
+              selectedFile={selectedFile}
+              className="w-10 h-10"
+              disabled={loading || !session}
+              aria-label="Upload file"
+            />
+            <Button
+              type="submit" 
+              id="chat-send-button"
+              name="send"
+              disabled={loading || (!input.trim() && !selectedFile) || !session}
+              aria-label="Send message"
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+            </Button>
+          </div>
+        </form>
+        <div id="chat-status" className="sr-only" aria-live="polite">
+          {loading ? 'Loading...' : session ? 'Ready to chat' : 'Initializing chat...'}
         </div>
       </div>
     </div>
@@ -477,4 +494,13 @@ function shouldMoveToNextStep(message: string): boolean {
   // Implement logic to determine if we should move to the next step
   // This is a placeholder - you should implement specific logic based on your needs
   return false;
-} 
+}
+
+<DialogContent 
+  className="max-w-4xl h-[80vh] flex flex-col bg-white dark:bg-gray-900"
+  aria-describedby="chat-description"
+>
+  <div id="chat-description" className="sr-only">
+    Chat interface for interacting with the role's persona
+  </div>
+</DialogContent> 

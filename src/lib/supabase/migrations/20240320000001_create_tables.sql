@@ -6,16 +6,22 @@ CREATE TABLE IF NOT EXISTS roles (
   description TEXT NOT NULL,
   company_id UUID NOT NULL,
   level TEXT NOT NULL,
+  location TEXT NOT NULL DEFAULT 'Remote',
   tags TEXT[] NOT NULL,
-  conversation_mode TEXT NOT NULL,
-  expected_response_length TEXT NOT NULL
+  requirements TEXT[] NOT NULL DEFAULT '{}',
+  responsibilities TEXT[] NOT NULL DEFAULT '{}',
+  conversation_mode TEXT NOT NULL DEFAULT 'structured',
+  expected_response_length TEXT NOT NULL DEFAULT 'medium'
 );
 
 -- Create companies table
 CREATE TABLE IF NOT EXISTS companies (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  website TEXT,
+  description TEXT,
+  logo_url TEXT
 );
 
 -- Create chat_sessions table

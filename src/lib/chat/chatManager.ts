@@ -1,193 +1,201 @@
-import { SupabaseClient } from '@supabase/supabase-js';
-import { Database } from '@/types/supabase';
-import { ChatSession, Message, Persona } from './types';
-import { toast } from 'react-hot-toast';
-
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const ALLOWED_FILE_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+import { createClient } from '@/lib/supabase/server';
+import { ChatSession, Message } from '@/types/chat';
 
 export class ChatManager {
-  private supabase: SupabaseClient<Database>;
+  private supabase;
   private session: ChatSession | null = null;
-  private persona: Persona | null = null;
+  private messageQueue: Message[] = [];
+  private processingQueue = false;
+  private retryCount = 0;
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAY = 1000;
 
-  constructor(supabaseClient: SupabaseClient<Database>) {
-    this.supabase = supabaseClient;
+  constructor() {
+    this.supabase = createClient();
   }
 
-  async initializeChat(userId: string, personaId: string): Promise<void> {
-    const { data: persona, error: personaError } = await this.supabase
-      .from('personas')
-      .select('*')
-      .eq('id', personaId)
-      .single();
+  async initializeSession(roleId: string): Promise<ChatSession> {
+    try {
+      const { data: session, error } = await this.supabase
+        .from('chat_sessions')
+        .insert([
+          {
+            role_id: roleId,
+            status: 'active',
+            context: {
+              roleId,
+              createdAt: new Date().toISOString(),
+              lastActivity: new Date().toISOString()
+            }
+          }
+        ])
+        .select()
+        .single();
 
-    if (personaError || !persona) {
-      throw new Error('Failed to fetch persona');
+      if (error) throw error;
+      if (!session) throw new Error('Failed to create chat session');
+
+      this.session = session;
+      return session;
+    } catch (error) {
+      console.error('Error initializing session:', error);
+      throw error;
+    }
+  }
+
+  async loadSession(sessionId: string): Promise<ChatSession> {
+    try {
+      const { data: session, error } = await this.supabase
+        .from('chat_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single();
+
+      if (error) throw error;
+      if (!session) throw new Error('Session not found');
+
+      this.session = session;
+      return session;
+    } catch (error) {
+      console.error('Error loading session:', error);
+      throw error;
+    }
+  }
+
+  async addMessage(content: string, role: 'user' | 'assistant'): Promise<Message> {
+    if (!this.session) {
+      throw new Error('No active session');
     }
 
-    const { data: session, error: sessionError } = await this.supabase
-      .from('chat_sessions')
-      .insert({
-        user_id: userId,
-        persona_id: personaId,
-        messages: [],
-        context: {
-          collected_info: {},
-          resumeUploaded: false,
-          currentStage: 'initial'
+    const message: Message = {
+      id: crypto.randomUUID(),
+      session_id: this.session.id,
+      role,
+      content,
+      created_at: new Date().toISOString(),
+      status: 'sending'
+    };
+
+    this.messageQueue.push(message);
+    await this.processMessageQueue();
+
+    return message;
+  }
+
+  private async processMessageQueue() {
+    if (this.processingQueue || this.messageQueue.length === 0) {
+      return;
+    }
+
+    this.processingQueue = true;
+
+    try {
+      while (this.messageQueue.length > 0) {
+        const message = this.messageQueue[0];
+        
+        try {
+          const { error } = await this.supabase
+            .from('messages')
+            .insert([message]);
+
+          if (error) throw error;
+
+          // Update message status to delivered
+          message.status = 'delivered';
+          this.messageQueue.shift();
+          this.retryCount = 0;
+        } catch (error) {
+          if (this.retryCount < this.MAX_RETRIES) {
+            this.retryCount++;
+            await new Promise(resolve => 
+              setTimeout(resolve, this.RETRY_DELAY * Math.pow(2, this.retryCount))
+            );
+            continue;
+          }
+          
+          // If max retries reached, mark message as error
+          message.status = 'error';
+          this.messageQueue.shift();
+          throw error;
         }
-      })
-      .select()
-      .single();
-
-    if (sessionError || !session) {
-      throw new Error('Failed to create chat session');
+      }
+    } finally {
+      this.processingQueue = false;
     }
-
-    this.session = session;
-    this.persona = persona;
   }
 
-  async loadSession(sessionId: string): Promise<void> {
-    const { data: session, error: sessionError } = await this.supabase
-      .from('chat_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single();
-
-    if (sessionError || !session) {
-      throw new Error('Failed to load chat session');
-    }
-
-    const { data: persona, error: personaError } = await this.supabase
-      .from('personas')
-      .select('*')
-      .eq('id', session.persona_id)
-      .single();
-
-    if (personaError || !persona) {
-      throw new Error('Failed to load persona');
-    }
-
-    this.session = session;
-    this.persona = persona;
-  }
-
-  async handleFileUpload(file: File): Promise<string> {
+  async updateSessionContext(context: Record<string, any>): Promise<void> {
     if (!this.session) {
-      throw new Error('Chat session not initialized');
+      throw new Error('No active session');
     }
 
-    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-      throw new Error('Invalid file type. Please upload a PDF or Word document.');
+    try {
+      const { error } = await this.supabase
+        .from('chat_sessions')
+        .update({
+          context: {
+            ...this.session.context,
+            ...context,
+            lastActivity: new Date().toISOString()
+          }
+        })
+        .eq('id', this.session.id);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error updating session context:', error);
+      throw error;
     }
-
-    if (file.size > MAX_FILE_SIZE) {
-      throw new Error('File size exceeds 5MB limit');
-    }
-
-    const fileExt = file.name.split('.').pop();
-    const filePath = `${this.session.id}/${Date.now()}.${fileExt}`;
-
-    const { error: uploadError, data } = await this.supabase.storage
-      .from('resumes')
-      .upload(filePath, file);
-
-    if (uploadError || !data) {
-      throw new Error('Failed to upload file');
-    }
-
-    const { data: { publicUrl } } = this.supabase.storage
-      .from('resumes')
-      .getPublicUrl(filePath);
-
-    await this.updateSessionContext({
-      resume_url: publicUrl,
-      resumeUploaded: true
-    });
-
-    return publicUrl;
-  }
-
-  async updateSessionContext(contextUpdate: Partial<ChatSession['context']>): Promise<void> {
-    if (!this.session) {
-      throw new Error('Chat session not initialized');
-    }
-
-    const updatedContext = {
-      ...this.session.context,
-      ...contextUpdate
-    };
-
-    const { error } = await this.supabase
-      .from('chat_sessions')
-      .update({ 
-        context: updatedContext,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', this.session.id);
-
-    if (error) {
-      throw new Error('Failed to update session context');
-    }
-
-    this.session.context = updatedContext;
-  }
-
-  async addMessage(message: Omit<Message, 'timestamp'>): Promise<void> {
-    if (!this.session) {
-      throw new Error('Chat session not initialized');
-    }
-
-    const newMessage = {
-      ...message,
-      timestamp: new Date().toISOString()
-    };
-
-    const updatedTranscript = [
-      ...(this.session.chat_transcript || []),
-      newMessage
-    ];
-
-    const { error } = await this.supabase
-      .from('chat_sessions')
-      .update({ chat_transcript: updatedTranscript })
-      .eq('id', this.session.id);
-
-    if (error) {
-      throw new Error('Failed to add message');
-    }
-
-    this.session.chat_transcript = updatedTranscript;
   }
 
   async endSession(): Promise<void> {
     if (!this.session) {
-      throw new Error('Chat session not initialized');
+      return;
     }
 
-    const { error } = await this.supabase
-      .from('chat_sessions')
-      .update({ 
-        status: 'completed',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', this.session.id);
+    try {
+      const { error } = await this.supabase
+        .from('chat_sessions')
+        .update({ status: 'ended' })
+        .eq('id', this.session.id);
 
-    if (error) {
-      throw new Error('Failed to end chat session');
+      if (error) throw error;
+
+      this.session = null;
+      this.messageQueue = [];
+      this.retryCount = 0;
+    } catch (error) {
+      console.error('Error ending session:', error);
+      throw error;
     }
-
-    this.session = null;
-    this.persona = null;
   }
 
-  getSession(): ChatSession | null {
+  async getMessages(limit = 50): Promise<Message[]> {
+    if (!this.session) {
+      throw new Error('No active session');
+    }
+
+    try {
+      const { data: messages, error } = await this.supabase
+        .from('messages')
+        .select('*')
+        .eq('session_id', this.session.id)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+
+      if (error) throw error;
+      return messages || [];
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+      throw error;
+    }
+  }
+
+  getCurrentSession(): ChatSession | null {
     return this.session;
   }
 
-  getPersona(): Persona | null {
-    return this.persona;
+  getMessageQueue(): Message[] {
+    return [...this.messageQueue];
   }
 } 

@@ -1,21 +1,18 @@
--- Drop existing tables and triggers if they exist
-DROP TRIGGER IF EXISTS update_chat_sessions_updated_at ON public.chat_sessions;
-DROP FUNCTION IF EXISTS update_updated_at_column();
-DROP TABLE IF EXISTS public.messages;
-DROP TABLE IF EXISTS public.chat_sessions;
+-- Drop existing chat_sessions table if it exists
+DROP TABLE IF EXISTS public.chat_sessions CASCADE;
 
--- Create chat_sessions table
+-- Create updated chat_sessions table
 CREATE TABLE IF NOT EXISTS public.chat_sessions (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
-    user_id UUID DEFAULT gen_random_uuid() NOT NULL,
+    user_id UUID NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
-    context JSONB NOT NULL DEFAULT '{}'::jsonb,
+    context JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Create messages table
+-- Create messages table if it doesn't exist
 CREATE TABLE IF NOT EXISTS public.messages (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     session_id UUID NOT NULL REFERENCES public.chat_sessions(id) ON DELETE CASCADE,
@@ -27,7 +24,45 @@ CREATE TABLE IF NOT EXISTS public.messages (
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_role_id ON public.chat_sessions(role_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON public.chat_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON public.messages(session_id);
+
+-- Enable Row Level Security
+ALTER TABLE public.chat_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+
+-- Create policies
+CREATE POLICY "Users can view their own chat sessions"
+    ON public.chat_sessions
+    FOR SELECT
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can create their own chat sessions"
+    ON public.chat_sessions
+    FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can view their own messages"
+    ON public.messages
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.chat_sessions
+            WHERE chat_sessions.id = messages.session_id
+            AND chat_sessions.user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Users can create messages in their own sessions"
+    ON public.messages
+    FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.chat_sessions
+            WHERE chat_sessions.id = session_id
+            AND chat_sessions.user_id = auth.uid()
+        )
+    );
 
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()

@@ -3,9 +3,10 @@ import { OpenAI } from 'openai';
 import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { getSystemPrompt } from '@/lib/chat/context';
+import { cookies } from 'next/headers';
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
 });
 
 export async function POST(req: Request) {
@@ -23,35 +24,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Role ID is required' }, { status: 400 });
     }
 
-    const supabase = createClient();
-
-    // Get authorization header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      console.error('No authorization header provided');
-      return NextResponse.json({ error: 'Unauthorized - No token provided' }, { status: 401 });
-    }
-
-    const token = authHeader.split(' ')[1];
-    if (!token) {
-      console.error('Invalid authorization header format');
-      return NextResponse.json({ error: 'Unauthorized - Invalid token format' }, { status: 401 });
-    }
-
-    // Generate a valid UUID for the default user
-    const userId = token === 'default-user-id' ? uuidv4() : token;
-    if (!userId) {
-      console.error('Invalid user ID');
-      return NextResponse.json({ error: 'Unauthorized - Invalid user ID' }, { status: 401 });
-    }
-
-    console.log('Authenticated user:', userId);
-    console.log('Fetching role:', roleId);
+    const cookieStore = cookies();
+    const supabase = createClient(cookieStore);
 
     // Get role details
     const { data: role, error: roleError } = await supabase
       .from('roles')
-      .select('*')
+      .select('*, companies(name)')
       .eq('id', roleId)
       .single();
 
@@ -70,15 +49,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Role not found', roleId }, { status: 404 });
     }
 
-    console.log('Found role:', role);
-
     // Get or create chat session
-    let sessionId: string | null = null;
+    let chatSessionId: string | null = null;
     const { data: existingSession, error: sessionError } = await supabase
       .from('chat_sessions')
       .select('id, context')
       .eq('role_id', roleId)
-      .eq('user_id', userId)
+      .eq('status', 'active')
       .single();
 
     if (sessionError && sessionError.code !== 'PGRST116') {
@@ -92,18 +69,16 @@ export async function POST(req: Request) {
     }
 
     if (existingSession) {
-      sessionId = existingSession.id;
+      chatSessionId = existingSession.id;
     } else {
       const { data: newSession, error: createError } = await supabase
         .from('chat_sessions')
         .insert({
           role_id: roleId,
-          user_id: userId,
           status: 'active',
           context: {
-            roleId,
             mode: mode || 'initial',
-            expectedResponseLength: expectedResponseLength || 'medium',
+            expectedResponseLength,
             resumeContent,
             collectedInfo: {},
             currentStep: 0,
@@ -124,10 +99,10 @@ export async function POST(req: Request) {
         }, { status: 500 });
       }
 
-      sessionId = newSession.id;
+      chatSessionId = newSession.id;
     }
 
-    if (!sessionId) {
+    if (!chatSessionId) {
       console.error('No session ID available');
       return NextResponse.json({ error: 'Failed to get or create chat session' }, { status: 500 });
     }
@@ -136,7 +111,7 @@ export async function POST(req: Request) {
     const lastMessage = messages[messages.length - 1];
     if (lastMessage) {
       const { error: messageError } = await supabase.from('messages').insert({
-        session_id: sessionId,
+        session_id: chatSessionId,
         role: lastMessage.role,
         content: lastMessage.content,
         attachments: attachments.length > 0 ? attachments.map(file => ({
@@ -161,7 +136,7 @@ export async function POST(req: Request) {
     const { data: session, error: contextError } = await supabase
       .from('chat_sessions')
       .select('context')
-      .eq('id', sessionId)
+      .eq('id', chatSessionId)
       .single();
 
     if (contextError) {
@@ -174,11 +149,9 @@ export async function POST(req: Request) {
       }, { status: 500 });
     }
 
-    // Construct system prompt with role and context
-    const systemPrompt = getSystemPrompt(session.context);
-
+    // Generate AI response
     try {
-      // Get streaming response from OpenAI
+      const systemPrompt = getSystemPrompt(role, session?.context || {});
       const stream = await openai.chat.completions.create({
         model: 'gpt-4',
         messages: [
@@ -206,9 +179,9 @@ export async function POST(req: Request) {
             controller.close();
 
             // Save the assistant's response
-            if (sessionId && fullResponse) {
+            if (chatSessionId && fullResponse) {
               const { error: saveError } = await supabase.from('messages').insert({
-                session_id: sessionId,
+                session_id: chatSessionId,
                 role: 'assistant',
                 content: fullResponse,
               });

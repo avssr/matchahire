@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 import { Button } from '@/components/client/ui/Button';
-import { FormField } from '@/components/client/ui/FormField';
+import { FormField } from '@/components/ui/FormField';
+import { Textarea } from '@/components/ui/Textarea';
 
 interface FormData {
   name: string;
@@ -58,13 +59,17 @@ export function QuickApplyForm({ roleId, onSubmit, onClose }: QuickApplyFormProp
           }}
           required
         />
-        <FormField
-          label="Cover Letter"
-          type="textarea"
-          value={formData.coverLetter}
-          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => 
-            setFormData({ ...formData, coverLetter: e.target.value })}
-        />
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-text-main">
+            Cover Letter
+          </label>
+          <Textarea
+            value={formData.coverLetter}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => 
+              setFormData({ ...formData, coverLetter: e.target.value })}
+            className="min-h-[150px]"
+          />
+        </div>
         <div className="flex justify-end space-x-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
