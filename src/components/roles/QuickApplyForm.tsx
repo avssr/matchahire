@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { useToast } from '@/components/ui/use-toast';
-import { createClient } from '@/lib/supabase/client';
+import { supabase } from '@/lib/supabase/client';
 
 interface QuickApplyFormProps {
   roleId: string;
@@ -22,7 +22,6 @@ export function QuickApplyForm({ roleId }: QuickApplyFormProps) {
   });
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
-  const supabase = createClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

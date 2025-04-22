@@ -102,6 +102,7 @@ export function RoleModal({ role, isOpen, onClose, activeTab, onTabChange }: Rol
             roleId={role.id}
             mode={role.conversation_mode}
             expectedResponseLength={role.expected_response_length}
+            onSwitchToApply={() => onTabChange('apply')}
           />
         )}
 
