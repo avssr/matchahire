@@ -1,7 +1,9 @@
+'use client';
+
 import React from 'react';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/client/ui/Card';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/client/ui/Button';
 
 // Mock data - replace with actual data from Supabase
 const stats = [

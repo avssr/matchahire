@@ -1,10 +1,10 @@
 'use client';
 
 import React from 'react';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
+import Link from 'next/link';
+import { Card } from '@/components/client/ui/Card';
+import { Button } from '@/components/client/ui/Button';
 import { FiMapPin, FiClock, FiMessageSquare, FiMessageCircle, FiSend } from 'react-icons/fi';
-import { motion } from 'framer-motion';
 
 interface RoleCardProps {
   role: {
@@ -24,13 +24,9 @@ interface RoleCardProps {
 
 export function RoleCard({ role, onClick, onChat, onApply }: RoleCardProps) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-    >
+    <div className="animate-fade-in">
       <Card 
-        className="group cursor-pointer transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/10"
+        className="group cursor-pointer transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/10 hover:scale-[1.02]"
       >
         <div className="p-6">
           <div className="flex justify-between items-start mb-4">
@@ -102,6 +98,6 @@ export function RoleCard({ role, onClick, onChat, onApply }: RoleCardProps) {
           </div>
         </div>
       </Card>
-    </motion.div>
+    </div>
   );
 } 

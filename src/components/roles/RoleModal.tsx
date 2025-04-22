@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
+import { Button } from '@/components/client/ui/Button';
+import { Card } from '@/components/client/ui/Card';
 import { ChatWithPersona } from './ChatWithPersona';
 import { QuickApplyForm } from './QuickApplyForm';
 
@@ -31,11 +31,23 @@ interface RoleModalProps {
 }
 
 export function RoleModal({ role, isOpen, onClose, activeTab, onTabChange }: RoleModalProps) {
+  const handleQuickApplySubmit = (data: any) => {
+    // Handle form submission
+    console.log('Form submitted:', data);
+    onClose();
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent 
+        className="max-w-4xl max-h-[90vh] overflow-y-auto"
+        aria-describedby="role-description"
+      >
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold">{role.title}</DialogTitle>
+          <DialogDescription id="role-description">
+            View role details, chat with an AI persona, or apply quickly
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex gap-4 mb-6">
@@ -107,7 +119,11 @@ export function RoleModal({ role, isOpen, onClose, activeTab, onTabChange }: Rol
         )}
 
         {activeTab === 'apply' && (
-          <QuickApplyForm roleId={role.id} />
+          <QuickApplyForm 
+            roleId={role.id} 
+            onSubmit={handleQuickApplySubmit}
+            onClose={onClose}
+          />
         )}
       </DialogContent>
     </Dialog>

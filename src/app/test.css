@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.test-class {
+  @apply text-blue-500;
+}
+
+.test-inline {
+  color: blue;
+} 

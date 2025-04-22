@@ -65,20 +65,101 @@ export interface Database {
         Row: {
           id: string
           created_at: string
-          user_id: string
+          updated_at: string
           role_id: string
+          candidate_id: string
+          persona_id: string | null
+          current_step: number
+          total_steps: number
+          conversation_mode: 'structured' | 'conversational'
+          status: 'new' | 'in-progress' | 'closed'
+          messages: {
+            id: string
+            text: string
+            type: 'user' | 'assistant'
+            timestamp: number
+            metadata?: {
+              isTyping?: boolean
+              isError?: boolean
+              attachments?: {
+                type: 'resume' | 'portfolio' | 'other'
+                url: string
+                name: string
+              }[]
+            }
+          }[]
+          context: {
+            candidate_name?: string
+            resume_url?: string
+            portfolio_urls?: string[]
+            collected_info: Record<string, any>
+          }
         }
         Insert: {
           id?: string
           created_at?: string
-          user_id: string
+          updated_at?: string
           role_id: string
+          candidate_id: string
+          persona_id?: string
+          current_step?: number
+          total_steps?: number
+          conversation_mode?: 'structured' | 'conversational'
+          status?: 'new' | 'in-progress' | 'closed'
+          messages?: {
+            id: string
+            text: string
+            type: 'user' | 'assistant'
+            timestamp: number
+            metadata?: {
+              isTyping?: boolean
+              isError?: boolean
+              attachments?: {
+                type: 'resume' | 'portfolio' | 'other'
+                url: string
+                name: string
+              }[]
+            }
+          }[]
+          context?: {
+            candidate_name?: string
+            resume_url?: string
+            portfolio_urls?: string[]
+            collected_info: Record<string, any>
+          }
         }
         Update: {
           id?: string
           created_at?: string
-          user_id?: string
+          updated_at?: string
           role_id?: string
+          candidate_id?: string
+          persona_id?: string
+          current_step?: number
+          total_steps?: number
+          conversation_mode?: 'structured' | 'conversational'
+          status?: 'new' | 'in-progress' | 'closed'
+          messages?: {
+            id: string
+            text: string
+            type: 'user' | 'assistant'
+            timestamp: number
+            metadata?: {
+              isTyping?: boolean
+              isError?: boolean
+              attachments?: {
+                type: 'resume' | 'portfolio' | 'other'
+                url: string
+                name: string
+              }[]
+            }
+          }[]
+          context?: {
+            candidate_name?: string
+            resume_url?: string
+            portfolio_urls?: string[]
+            collected_info: Record<string, any>
+          }
         }
       }
       messages: {

@@ -5,20 +5,20 @@ import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/supabase/client';
 import { RoleCard } from '@/components/roles/RoleCard';
 import { RoleModal } from '@/components/roles/RoleModal';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/client/ui/Button';
 import { Input } from '@/components/ui/Input';
 
 interface Role {
   id: string;
   title: string;
-  location?: string;
+  location: string;
   level: string;
   tags: string[];
   description: string;
   requirements: string[];
   responsibilities: string[];
   company_id: string;
-  company_name?: string;
+  company_name: string;
   conversation_mode: 'structured' | 'conversational';
   expected_response_length: string;
 }
@@ -137,10 +137,10 @@ export default function RolesPage() {
               role={{
                 id: role.id,
                 title: role.title,
-                description: role.description,
-                company_name: role.company_name,
+                location: role.location || 'Remote',
                 level: role.level,
                 tags: role.tags,
+                company_name: role.company_name,
                 conversation_mode: role.conversation_mode,
                 expected_response_length: role.expected_response_length
               }}

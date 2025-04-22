@@ -1,4 +1,6 @@
-import { Button } from '@/components/ui/Button';
+'use client';
+
+import { Button } from '@/components/client/ui/Button';
 import { Input } from '@/components/ui/Input';
 
 export default function CompanyPage() {

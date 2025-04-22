@@ -24,14 +24,17 @@ CREATE TABLE IF NOT EXISTS roles (
 
 -- Create personas table
 CREATE TABLE IF NOT EXISTS personas (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  role_id UUID REFERENCES roles(id),
-  name TEXT NOT NULL,
-  description TEXT,
-  personality TEXT,
-  interview_style TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    persona_name VARCHAR(255) NOT NULL,
+    persona_gender VARCHAR(50),
+    persona_style VARCHAR(50) CHECK (persona_style IN ('conversational', 'structured')),
+    language_tone VARCHAR(255) DEFAULT 'English with Indian flavor',
+    emoji_style BOOLEAN DEFAULT true,
+    default_closing TEXT,
+    system_prompt TEXT,
+    role_type VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create candidates table
@@ -76,6 +79,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     summary_candidate TEXT,
     chat_transcript JSONB,
     attachments JSONB,
+    context JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -88,6 +92,13 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Create initial personas
+INSERT INTO personas (persona_name, persona_gender, persona_style, role_type, default_closing, system_prompt) VALUES
+('Maya', 'female', 'conversational', 'Operations', 'Thank you for your time! A real recruiter from our team will be in touch soon 🇮🇳', 'You are Maya, an experienced Operations recruiter with a warm and professional Indian communication style. Focus on operational excellence and process optimization experience.'),
+('Arjun', 'male', 'structured', 'Technical', 'Thank you for your time! A real recruiter from our team will be in touch soon 🇮🇳', 'You are Arjun, a technical recruiter with deep understanding of software development and system architecture. Use structured technical evaluation approach with Indian cultural context.'),
+('Shruti', 'female', 'conversational', 'Business Development', 'Thank you for your time! A real recruiter from our team will be in touch soon 🇮🇳', 'You are Shruti, a Business Development recruiter focusing on sales aptitude and relationship building skills. Maintain a friendly yet professional Indian communication style.'),
+('Karan', 'male', 'structured', 'Product Management', 'Thank you for your time! A real recruiter from our team will be in touch soon 🇮🇳', 'You are Karan, a Product Management recruiter evaluating product sense and leadership abilities. Use a structured approach while maintaining Indian cultural context.');
 
 -- Create RLS policies
 ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
