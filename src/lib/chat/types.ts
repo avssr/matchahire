@@ -1,10 +1,11 @@
-export type ConversationMode = 'initial' | 'screening' | 'technical' | 'cultural' | 'closing';
+export type ConversationMode = 'structured' | 'conversational' | 'initial';
 
 export interface Message {
   id: string;
+  session_id: string;
   role: 'user' | 'assistant';
   content: string;
-  timestamp: string;
+  created_at: string;
 }
 
 export interface Persona {
@@ -64,4 +65,44 @@ export interface ChatState {
     uploadResume: (file: File) => Promise<void>;
     endSession: () => Promise<void>;
   };
+}
+
+export interface Education {
+  degree: string;
+  institution: string;
+  year: string;
+}
+
+export interface Project {
+  name: string;
+  description?: string;
+  technologies?: string[];
+  year?: string;
+}
+
+export interface ResumeInsights {
+  skills: string[];
+  experience: {
+    years: number;
+    roles: string[];
+  };
+  education: Education[];
+}
+
+export interface PortfolioInsights {
+  projects: Project[];
+  skills: string[];
+}
+
+export interface FileContext {
+  resumeSubmitted?: boolean;
+  resumeInsights?: ResumeInsights;
+  portfolioSubmitted?: boolean;
+  portfolioInsights?: PortfolioInsights;
+}
+
+export interface ExperienceLevel {
+  level: 'junior' | 'mid' | 'senior';
+  yearsOfExperience: number;
+  relevantAreas: string[];
 } 

@@ -19,6 +19,11 @@ export interface PersonaConfig {
     followUpQuestions: string[];
     prompt?: string;
   };
+  initialMessage: {
+    greeting: string;
+    experienceQuestion: string;
+    resumeMention: string;
+  };
 }
 
 const defaultPersonas: Record<string, PersonaConfig> = {
@@ -72,6 +77,11 @@ const defaultPersonas: Record<string, PersonaConfig> = {
       4. Code quality and best practices
       5. Learning agility and growth mindset`,
     },
+    initialMessage: {
+      greeting: 'Hello! I\'m your AI recruiter for this role.',
+      experienceQuestion: 'Could you tell me about your relevant experience?',
+      resumeMention: 'Feel free to share your resume or portfolio if you have one.'
+    }
   },
   operations: {
     id: 'operations',
@@ -123,6 +133,11 @@ const defaultPersonas: Record<string, PersonaConfig> = {
       4. Operational efficiency focus
       5. Problem-solving approach`,
     },
+    initialMessage: {
+      greeting: 'Hello! I\'m your AI recruiter for this role.',
+      experienceQuestion: 'Could you tell me about your relevant experience?',
+      resumeMention: 'Feel free to share your resume or portfolio if you have one.'
+    }
   }
 };
 
@@ -130,10 +145,13 @@ export async function getPersonaForRole(roleId: string): Promise<PersonaConfig> 
   try {
     const supabase = createClient();
     
-    // First get the role type
+    // Get the role and its associated persona
     const { data: role, error: roleError } = await supabase
       .from('roles')
-      .select('title')
+      .select(`
+        *,
+        persona:personas(*)
+      `)
       .eq('id', roleId)
       .single();
 
@@ -142,30 +160,21 @@ export async function getPersonaForRole(roleId: string): Promise<PersonaConfig> 
       return defaultPersonas.technical;
     }
 
-    // Extract role type from title (e.g., "Technical Lead" -> "technical")
-    const roleType = role.title.split(' ')[0].toLowerCase();
-
-    // Try to get custom persona for this role type
-    const { data: persona, error: personaError } = await supabase
-      .from('personas')
-      .select('*')
-      .eq('role_type', roleType)
-      .single();
-
-    if (personaError || !persona) {
-      console.error('Error fetching persona:', personaError);
-      // Return default persona based on role type
-      return defaultPersonas[roleType] || defaultPersonas.technical;
+    // If we have a persona directly linked to this role, use it
+    if (role.persona) {
+      return {
+        ...role.persona,
+        roleType: role.persona.role_type,
+        followUpQuestions: role.persona.follow_up_questions || [],
+        fallbackResponses: role.persona.fallback_responses || [],
+        closingStatements: role.persona.closing_statements || [],
+        skillEvaluation: role.persona.skill_evaluation || defaultPersonas.technical.skillEvaluation,
+        initialMessage: role.persona.initial_message || defaultPersonas.technical.initialMessage
+      };
     }
 
-    return {
-      ...persona,
-      roleType,
-      followUpQuestions: persona.follow_up_questions || [],
-      fallbackResponses: persona.fallback_responses || [],
-      closingStatements: persona.closing_statements || [],
-      skillEvaluation: persona.skill_evaluation || defaultPersonas.technical.skillEvaluation
-    };
+    // If no specific persona, return default based on role type
+    return defaultPersonas.technical;
   } catch (error) {
     console.error('Error in getPersonaForRole:', error);
     return defaultPersonas.technical;

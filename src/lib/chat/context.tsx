@@ -7,6 +7,15 @@ import { createClient } from '@/lib/supabase/client';
 import { PersonaConfig, getPersonaForRole } from './personas';
 import { generatePersonaResponse, analyzeResponse } from './intelligence';
 import { v4 as uuidv4 } from 'uuid';
+import { ResumeInsights, PortfolioInsights, FileContext, ExperienceLevel } from './types';
+
+interface ChatState {
+  sessionId: string;
+  roleId: string;
+  messages: Message[];
+  fileContext: FileContext;
+  activeUntil: Date;
+}
 
 interface ChatContextType {
   session: ChatSession | null;
@@ -15,7 +24,7 @@ interface ChatContextType {
   error: string | null;
   isInitializing: boolean;
   startSession: (roleId: string, mode?: ConversationMode, expectedResponseLength?: string) => Promise<void>;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (content: string, attachments?: File[]) => Promise<void>;
   uploadResume: (formData: FormData) => Promise<void>;
   endSession: () => Promise<void>;
   retrySession: () => Promise<void>;
@@ -30,6 +39,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
   const [currentPersona, setCurrentPersona] = useState<PersonaConfig | null>(null);
+  const [fileContext, setFileContext] = useState<FileContext>({});
+  const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const startSessionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const retryCountRef = useRef(0);
@@ -44,101 +55,104 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setCurrentPersona(null);
     setError(null);
     setIsInitializing(false);
+    setFileContext({});
+    setExperienceLevel(null);
     retryCountRef.current = 0;
   }, []);
 
   const startSession = useCallback(async (roleId: string, mode?: ConversationMode, expectedResponseLength?: string) => {
-    if (isInitializing) {
-      console.log('Session initialization already in progress');
-      return;
-    }
-
-    // Clear any existing timeout
-    if (startSessionTimeoutRef.current) {
-      clearTimeout(startSessionTimeoutRef.current);
-    }
-
-    // Cancel any existing request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    // Create new abort controller
-    abortControllerRef.current = new AbortController();
-
-    setIsInitializing(true);
-    setError(null);
+    if (isInitializing) return;
 
     try {
-      if (!roleId) {
-        throw new Error('Role ID is required to start a chat session');
-      }
+      setIsInitializing(true);
+      setError(null);
 
-      const response = await fetch(`/api/chat/start`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          roleId,
-          mode,
-          expectedResponseLength
-        }),
-        signal: abortControllerRef.current?.signal
-      });
+      // Create new session
+      const sessionId = uuidv4();
+      const now = new Date().toISOString();
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-      }
+      // Get role and persona
+      const { data: role } = await supabase
+        .from('roles')
+        .select('*')
+        .eq('id', roleId)
+        .single();
 
-      const data = await response.json().catch(() => {
-        throw new Error('Failed to parse response as JSON');
-      });
-      
-      if (!data.session) {
-        throw new Error('No session data received from server');
-      }
-      
-      setSession(data.session);
-      
-      // Load existing messages if any
-      if (data.session.id) {
-        const { data: existingMessages, error: messagesError } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('session_id', data.session.id)
-          .order('created_at', { ascending: true });
+      if (!role) throw new Error('Role not found');
 
-        if (messagesError) {
-          console.error('Error loading messages:', messagesError);
-          setMessages([]);
-        } else {
-          setMessages(existingMessages || []);
-        }
-      } else {
-        setMessages([]);
-      }
-      
-      const roleType = data.role?.type || 'technical';
-      const persona = await getPersonaForRole(roleType);
+      const persona = await getPersonaForRole(roleId);
       setCurrentPersona(persona);
-      retryCountRef.current = 0;
+
+      // Create initial message
+      const initialMessage = `${persona.initialMessage.greeting}\n\n${persona.initialMessage.experienceQuestion}\n\n${persona.initialMessage.resumeMention}`;
+
+      // Create initial messages array with session_id
+      const initialMessages: Message[] = [{
+        id: uuidv4(),
+        session_id: sessionId,
+        role: 'assistant',
+        content: initialMessage,
+        created_at: now,
+        status: 'delivered'
+      }];
+
+      // Save to DB for history
+      const { data: newSession, error: sessionError } = await supabase
+        .from('chat_sessions')
+        .insert({
+          id: sessionId,
+          role_id: roleId,
+          status: 'active',
+          context: {
+            mode: mode || 'structured',
+            expectedResponseLength: expectedResponseLength || 'medium',
+            currentStage: 0,
+            resumeUploaded: false
+          },
+          created_at: now,
+          updated_at: now
+        })
+        .select()
+        .single();
+
+      if (sessionError) throw sessionError;
+
+      // Save initial message to messages table
+      const { error: messageError } = await supabase
+        .from('messages')
+        .insert({
+          id: initialMessages[0].id,
+          session_id: sessionId,
+          role: 'assistant',
+          content: initialMessage,
+          created_at: now,
+          status: 'delivered'
+        });
+
+      if (messageError) throw messageError;
+
+      // Update local state
+      setSession(newSession);
+      setMessages(initialMessages);
+
+      // Save to session storage for persistence
+      const state: ChatState = {
+        sessionId,
+        roleId,
+        messages: initialMessages,
+        fileContext: {},
+        activeUntil: new Date(Date.now() + 30 * 60 * 1000)
+      };
+      sessionStorage.setItem(`chat_${sessionId}`, JSON.stringify(state));
+
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        console.log('Request was aborted');
-        return;
-      }
-      const errorMessage = err instanceof Error ? err.message : 'Failed to start chat session';
       console.error('Chat initialization error:', err);
-      setError(errorMessage);
-      throw err;
+      setError(err instanceof Error ? err.message : 'Failed to start chat session');
+      clearSessionState();
     } finally {
       setIsInitializing(false);
-      abortControllerRef.current = null;
-      startSessionTimeoutRef.current = null;
     }
-  }, [isInitializing, supabase]);
+  }, [isInitializing, supabase, clearSessionState]);
 
   const retrySession = useCallback(async () => {
     if (retryCountRef.current >= MAX_RETRIES) {
@@ -157,65 +171,116 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
   }, [session?.role_id, startSession]);
 
-  const sendMessage = useCallback(async (text: string) => {
-    if (!session || !currentPersona) {
-      console.error('No session or persona available');
-      return;
-    }
-
-    // Cancel any existing request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+  const getSystemPrompt = (persona: PersonaConfig | null, mode: ConversationMode) => {
+    if (!persona) return '';
     
-    // Create new abort controller
-    abortControllerRef.current = new AbortController();
+    return `You are ${persona.name}, an AI recruiter specialized in ${persona.roleType} roles.
+    Your style is ${persona.style} and you speak with a ${persona.languageTone} tone.
+    ${persona.emojiStyle ? 'Use emojis appropriately in your responses.' : ''}
+
+    Conversation Mode: ${mode}
+    ${persona.basePrompt}`;
+  };
+
+  const sendMessage = useCallback(async (content: string, attachments?: File[]) => {
+    if (!session?.id) {
+      throw new Error('No active chat session');
+    }
 
     try {
       setLoading(true);
       setError(null);
 
-      // Add user message to local state immediately
+      // Verify session exists in DB
+      const { data: existingSession, error: sessionError } = await supabase
+        .from('chat_sessions')
+        .select('*')
+        .eq('id', session.id)
+        .single();
+
+      if (sessionError || !existingSession) {
+        throw new Error('Chat session not found');
+      }
+
+      // Create user message
       const userMessage: Message = {
         id: uuidv4(),
         session_id: session.id,
         role: 'user',
-        content: text,
+        content,
         created_at: new Date().toISOString(),
-        status: 'sending'
+        status: 'delivered'
       };
-      
+
+      // Save user message to DB
+      const { error: messageError } = await supabase
+        .from('messages')
+        .insert(userMessage);
+
+      if (messageError) throw messageError;
+
+      // Update local state
       setMessages(prev => [...prev, userMessage]);
 
-      const formData = new FormData();
-      formData.append('message', text);
-      formData.append('sessionId', session.id);
+      // Get chat history
+      const { data: history, error: historyError } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('session_id', session.id)
+        .order('created_at', { ascending: true });
 
-      const response = await fetch('/api/chat/message', {
+      if (historyError) throw historyError;
+
+      // Prepare messages for API
+      const apiMessages = history.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+
+      // Get AI response
+      const response = await fetch('/api/chat', {
         method: 'POST',
-        body: formData,
-        signal: abortControllerRef.current.signal
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: apiMessages,
+          roleId: session.role_id,
+          sessionId: session.id
+        }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to send message');
+        throw new Error('Failed to get AI response');
       }
 
       const data = await response.json();
-      setMessages(data.messages);
+      const assistantMessage: Message = {
+        id: uuidv4(),
+        session_id: session.id,
+        role: 'assistant',
+        content: data.content,
+        created_at: new Date().toISOString(),
+        status: 'delivered'
+      };
+
+      // Save assistant message to DB
+      const { error: assistantError } = await supabase
+        .from('messages')
+        .insert(assistantMessage);
+
+      if (assistantError) throw assistantError;
+
+      // Update local state
+      setMessages(prev => [...prev, assistantMessage]);
+
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        console.log('Request was aborted');
-        return;
-      }
+      console.error('Message sending error:', err);
       setError(err instanceof Error ? err.message : 'Failed to send message');
-      console.error('Error sending message:', err);
     } finally {
       setLoading(false);
-      abortControllerRef.current = null;
     }
-  }, [session, currentPersona]);
+  }, [session, supabase]);
 
   const uploadResume = useCallback(async (formData: FormData) => {
     if (!session) return;
@@ -272,8 +337,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         session_id: session.id,
         role: 'assistant',
         content: 'Resume has been uploaded and analyzed. The AI will now consider this information in the conversation.',
-        created_at: new Date().toISOString(),
-        status: 'delivered'
+        created_at: new Date().toISOString()
       };
 
       setMessages(prev => [...prev, systemMessage]);
@@ -304,6 +368,77 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     
     clearSessionState();
   }, [session, clearSessionState]);
+
+  const handleFileUpload = useCallback(async (file: File, type: 'resume' | 'portfolio') => {
+    if (!session || !currentPersona) return;
+
+    try {
+      setLoading(true);
+      
+      // Process file
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', type);
+      formData.append('sessionId', session.id);
+
+      const response = await fetch('/api/chat/process-file', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) throw new Error('Failed to process file');
+
+      const insights = await response.json();
+      
+      // Update context
+      setFileContext(prev => ({
+        ...prev,
+        [`${type}Submitted`]: true,
+        [`${type}Insights`]: insights
+      }));
+
+      // Add assistant message
+      const newMessage: Message = {
+        id: uuidv4(),
+        session_id: session.id,
+        role: 'assistant',
+        content: `Thank you for sharing your ${type}. I'll analyze it and ask relevant questions.`,
+        created_at: new Date().toISOString()
+      };
+
+      setMessages(prev => [...prev, newMessage]);
+
+    } catch (err) {
+      console.error('File processing error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to process file');
+    } finally {
+      setLoading(false);
+    }
+  }, [session, currentPersona]);
+
+  const handleModalClose = useCallback(async () => {
+    if (!session) return;
+
+    try {
+      // Update session storage
+      sessionStorage.removeItem(`chat_${session.id}`);
+      
+      // Update DB
+      await supabase
+        .from('chat_sessions')
+        .update({
+          context: {
+            ...session.context,
+            activeUntil: new Date().toISOString()
+          }
+        })
+        .eq('id', session.id);
+
+      clearSessionState();
+    } catch (err) {
+      console.error('Session cleanup error:', err);
+    }
+  }, [session, supabase, clearSessionState]);
 
   // Cleanup on unmount
   React.useEffect(() => {

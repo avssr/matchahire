@@ -8,7 +8,8 @@
     "start": "next start -p 3000",
     "lint": "next lint",
     "seed": "ts-node src/lib/supabase/seed.ts",
-    "verify-tables": "ts-node src/lib/supabase/verify-tables.ts"
+    "verify-tables": "ts-node src/lib/supabase/verify-tables.ts",
+    "migrate": "ts-node src/lib/supabase/run-migrations.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.10",
@@ -30,17 +31,21 @@
     "zustand": "^4.5.6"
   },
   "devDependencies": {
+    "@types/dotenv": "^6.1.1",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.17",
     "canvas": "^3.1.0",
     "clsx": "^2.1.0",
+    "dotenv": "^16.5.0",
     "eslint": "^8.56.0",
     "eslint-config-next": "14.1.0",
     "postcss": "^8.4.35",
+    "supabase": "^2.22.4",
     "tailwind-merge": "^2.2.1",
     "tailwindcss": "^3.4.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5"
   }
 }

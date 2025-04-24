@@ -11,30 +11,29 @@ CREATE TABLE IF NOT EXISTS companies (
 
 -- Create roles table
 CREATE TABLE IF NOT EXISTS roles (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  company_id UUID REFERENCES companies(id),
-  title TEXT NOT NULL,
-  description TEXT,
-  location TEXT,
-  requirements TEXT[],
-  responsibilities TEXT[],
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    role_name VARCHAR(50) NOT NULL UNIQUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Insert initial roles
+INSERT INTO roles (role_name) VALUES
+('Operations'),
+('Technical')
+ON CONFLICT (role_name) DO NOTHING;
 
 -- Create personas table
 CREATE TABLE IF NOT EXISTS personas (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    persona_name VARCHAR(255) NOT NULL,
-    persona_gender VARCHAR(50),
-    persona_style VARCHAR(50) CHECK (persona_style IN ('conversational', 'structured')),
-    language_tone VARCHAR(255) DEFAULT 'English with Indian flavor',
-    emoji_style BOOLEAN DEFAULT true,
-    default_closing TEXT,
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    gender VARCHAR(20) NOT NULL,
+    style VARCHAR(50) NOT NULL,
+    role_id UUID REFERENCES roles(id) NOT NULL,
+    role_type VARCHAR(50) NOT NULL,
+    default_closing_message TEXT,
     system_prompt TEXT,
-    role_type VARCHAR(100),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create candidates table
@@ -69,6 +68,17 @@ CREATE TABLE IF NOT EXISTS interviews (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create sessions table
+CREATE TABLE IF NOT EXISTS sessions (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) NOT NULL,
+    role_id UUID REFERENCES roles(id) NOT NULL,
+    persona_id UUID REFERENCES personas(id) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create chat_sessions table
 CREATE TABLE IF NOT EXISTS chat_sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -86,15 +96,17 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 
 -- Create messages table
 CREATE TABLE IF NOT EXISTS messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    chat_session_id UUID REFERENCES chat_sessions(id) ON DELETE CASCADE,
-    role TEXT NOT NULL CHECK (role IN ('assistant', 'user')),
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    session_id UUID REFERENCES sessions(id) NOT NULL,
+    role VARCHAR(20) NOT NULL,
     content TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    status VARCHAR(20) DEFAULT 'pending',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create initial personas
-INSERT INTO personas (persona_name, persona_gender, persona_style, role_type, default_closing, system_prompt) VALUES
+INSERT INTO personas (persona_name, persona_gender, persona_style, role_id, default_closing, system_prompt) VALUES
 ('Maya', 'female', 'conversational', 'Operations', 'Thank you for your time! A real recruiter from our team will be in touch soon 🇮🇳', 'You are Maya, an experienced Operations recruiter with a warm and professional Indian communication style. Focus on operational excellence and process optimization experience.'),
 ('Arjun', 'male', 'structured', 'Technical', 'Thank you for your time! A real recruiter from our team will be in touch soon 🇮🇳', 'You are Arjun, a technical recruiter with deep understanding of software development and system architecture. Use structured technical evaluation approach with Indian cultural context.'),
 ('Shruti', 'female', 'conversational', 'Business Development', 'Thank you for your time! A real recruiter from our team will be in touch soon 🇮🇳', 'You are Shruti, a Business Development recruiter focusing on sales aptitude and relationship building skills. Maintain a friendly yet professional Indian communication style.'),
@@ -107,6 +119,7 @@ ALTER TABLE personas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE candidates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE interviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chat_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 

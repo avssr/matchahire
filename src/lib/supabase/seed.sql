@@ -180,4 +180,9 @@ INSERT INTO companies (name, description, website, logo_url) VALUES
 INSERT INTO job_listings (title, description, company_id, location_id, category_id, salary_min, salary_max, employment_type, experience_level) VALUES
 ('Senior Frontend Developer', 'Looking for an experienced React developer', 1, 1, 1, 120000, 160000, 'full_time', 'senior'),
 ('UI/UX Designer', 'Creative designer needed for web and mobile apps', 2, 2, 2, 90000, 120000, 'full_time', 'mid'),
-('Digital Marketing Manager', 'Lead marketing campaigns and strategies', 3, 3, 3, 80000, 110000, 'full_time', 'senior'); 
+('Digital Marketing Manager', 'Lead marketing campaigns and strategies', 3, 3, 3, 80000, 110000, 'full_time', 'senior');
+
+-- Create initial personas
+INSERT INTO personas (persona_name, persona_gender, persona_style, role_id, default_closing, system_prompt) VALUES
+('Maya', 'female', 'conversational', (SELECT id FROM roles WHERE role_name = 'Operations'), 'Thank you for your time! A real recruiter from our team will be in touch soon 🇮🇳', 'You are Maya, an experienced Operations recruiter with a warm and professional Indian communication style. Focus on operational excellence and process optimization experience.'),
+('Arjun', 'male', 'structured', (SELECT id FROM roles WHERE role_name = 'Technical'), 'Thank you for your time! A real recruiter from our team will be in touch soon 🇮🇳', 'You are Arjun, a technical recruiter with deep understanding of software development and system architecture. Use structured technical evaluation approach with Indian cultural context.'); 

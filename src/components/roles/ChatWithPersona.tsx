@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/client/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Send, Upload, X } from 'lucide-react';
+import { Loader2, Send, Upload, X, FileText } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useChat } from '@/lib/chat/context';
@@ -142,6 +142,55 @@ function FileUpload({
           <Upload className="w-4 h-4" />
         )}
       </Button>
+    </div>
+  );
+}
+
+interface FilePreviewProps {
+  file: File;
+  onRemove: () => void;
+}
+
+function FilePreview({ file, onRemove }: FilePreviewProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [file]);
+
+  return (
+    <div className="relative group">
+      <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
+        {previewUrl ? (
+          <img 
+            src={previewUrl} 
+            alt={file.name} 
+            className="w-12 h-12 object-cover rounded"
+          />
+        ) : (
+          <div className="w-12 h-12 flex items-center justify-center bg-primary/10 rounded">
+            <FileText className="w-6 h-6 text-primary" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{file.name}</p>
+          <p className="text-xs text-muted-foreground">
+            {(file.size / 1024).toFixed(1)} KB
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={onRemove}
+        >
+          <X className="w-4 h-4" />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -307,8 +356,17 @@ export default function ChatWithPersona({
     }
   }, [messages, session, roleError]);
 
-  const handleFileSelect = (file: File) => {
-    setSelectedFile(file);
+  const handleFileSelect = async (file: File) => {
+    try {
+      setSelectedFile(file);
+      const formData = new FormData();
+      formData.append('file', file);
+      await uploadResume(formData);
+      setSelectedFile(null);
+    } catch (err) {
+      console.error('Error uploading file:', err);
+      setRoleError('Failed to upload file. Please try again.');
+    }
   };
 
   const handleFileRemove = () => {
@@ -435,49 +493,60 @@ export default function ChatWithPersona({
 
       {/* Input Area */}
       <div className="border-t p-4">
-        <form onSubmit={handleSubmit} className="flex items-center gap-2">
-          <div className="flex-1">
-            <Input
-              id="chat-message-input"
-              name="message"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={getPlaceholderForTopic(currentTopic)}
-              className="w-full"
-              disabled={loading || !session}
-              aria-label="Message input"
-              aria-describedby="chat-status"
-            />
-          </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+          {selectedFile && (
+            <FilePreview file={selectedFile} onRemove={handleFileRemove} />
+          )}
           <div className="flex items-center gap-2">
-            <FileUpload
-              id="chat-file-upload"
-              name="file"
-              onFileSelect={handleFileSelect}
-              onFileRemove={handleFileRemove}
-              selectedFile={selectedFile}
-              className="w-10 h-10"
-              disabled={loading || !session}
-              aria-label="Upload file"
-            />
-            <Button
-              type="submit" 
-              id="chat-send-button"
-              name="send"
-              disabled={loading || (!input.trim() && !selectedFile) || !session}
-              aria-label="Send message"
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-            </Button>
+            <div className="flex-1">
+              <Input
+                id="chat-message-input"
+                name="message"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.shiftKey) {
+                    e.preventDefault();
+                    setInput(prev => prev + '\n');
+                  }
+                }}
+                placeholder={getPlaceholderForTopic(currentTopic)}
+                className="w-full min-h-[40px] max-h-[120px] resize-none"
+                disabled={loading || !session}
+                aria-label="Message input"
+                aria-describedby="chat-status"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <FileUpload
+                onFileSelect={handleFileSelect}
+                onFileRemove={handleFileRemove}
+                accept=".pdf,.doc,.docx"
+                maxSize={5 * 1024 * 1024} // 5MB
+                selectedFile={selectedFile}
+                disabled={loading || !session}
+                ariaLabel="Upload resume"
+              />
+              <Button
+                type="submit" 
+                id="chat-send-button"
+                name="send"
+                disabled={loading || (!input.trim() && !selectedFile) || !session}
+                aria-label="Send message"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+          <div id="chat-status" className="sr-only" aria-live="polite">
+            {loading ? 'Loading...' : session ? 'Ready to chat' : 'Initializing chat...'}
           </div>
         </form>
-        <div id="chat-status" className="sr-only" aria-live="polite">
-          {loading ? 'Loading...' : session ? 'Ready to chat' : 'Initializing chat...'}
-        </div>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { PersonaConfig } from './personas';
-import { Message } from '@/types/chat';
+import { Message, ResumeInsights, PortfolioInsights, ExperienceLevel } from './types';
+import { analyzeResume as analyzeResumeText, analyzePortfolio as analyzePortfolioText } from './fileProcessor';
 
 interface ConversationState {
   currentTopic: string;
@@ -85,41 +86,32 @@ export function selectNextQuestion(
 ): string {
   // If we haven't asked any questions yet, start with the first topic
   if (state.askedQuestions.size === 0) {
-    const firstTopic = Object.keys(persona.followUpQuestions)[0];
-    return persona.followUpQuestions[firstTopic][0];
+    return persona.followUpQuestions[0];
   }
   
   // If we have strengths or interests, follow up on those topics
   if (analysis.strengths.length > 0 || analysis.interests.length > 0) {
-    const relevantTopics = Object.entries(persona.followUpQuestions)
-      .filter(([topic]) => 
-        analysis.strengths.some(s => topic.includes(s)) ||
-        analysis.interests.some(i => topic.includes(i))
-      );
+    const relevantQuestions = persona.followUpQuestions.filter(q => 
+      analysis.strengths.some(s => q.includes(s)) ||
+      analysis.interests.some(i => q.includes(i))
+    );
       
-    if (relevantTopics.length > 0) {
-      const [topic, questions] = relevantTopics[0];
-      const unaskedQuestions = questions.filter(q => !state.askedQuestions.has(q));
+    if (relevantQuestions.length > 0) {
+      const unaskedQuestions = relevantQuestions.filter(q => !state.askedQuestions.has(q));
       if (unaskedQuestions.length > 0) {
         return unaskedQuestions[0];
       }
     }
   }
   
-  // Default to next unasked question in current topic
-  const currentTopicQuestions = persona.followUpQuestions[state.currentTopic];
-  if (currentTopicQuestions) {
-    const unaskedQuestions = currentTopicQuestions.filter(q => !state.askedQuestions.has(q));
-    if (unaskedQuestions.length > 0) {
-      return unaskedQuestions[0];
-    }
+  // Default to next unasked question
+  const unaskedQuestions = persona.followUpQuestions.filter(q => !state.askedQuestions.has(q));
+  if (unaskedQuestions.length > 0) {
+    return unaskedQuestions[0];
   }
   
-  // If all questions in current topic are asked, move to next topic
-  const topics = Object.keys(persona.followUpQuestions);
-  const currentIndex = topics.indexOf(state.currentTopic);
-  const nextTopic = topics[(currentIndex + 1) % topics.length];
-  return persona.followUpQuestions[nextTopic][0];
+  // If all questions are asked, start over with the first question
+  return persona.followUpQuestions[0];
 }
 
 export function generatePersonaResponse(
@@ -150,4 +142,56 @@ export function generatePersonaResponse(
   }, analysis, persona);
   
   return nextQuestion;
+}
+
+export function generateFollowUpQuestions(insights: ResumeInsights | PortfolioInsights, persona: PersonaConfig): string[] {
+  if ('experience' in insights) {
+    // Resume insights
+    return [
+      `I see you have ${insights.experience.years} years of experience. Could you tell me more about your role at ${insights.experience.companies[0]}?`,
+      `Your experience with ${insights.skills[0]} is interesting. How did you apply this in your projects?`,
+      ...insights.relevantProjects.map(project => 
+        `Could you elaborate on your ${project.name} project? Specifically, how did you handle ${project.technologies[0]}?`
+      )
+    ];
+  } else {
+    // Portfolio insights
+    return [
+      `I'm impressed by your ${insights.projects[0].name} project. What was your role in this project?`,
+      `How did you approach the technical choices in your projects?`,
+      ...(insights.designStyle ? [`Your design style seems ${insights.designStyle}. Could you tell me more about your design process?`] : [])
+    ];
+  }
+}
+
+export function analyzeExperienceLevel(response: string): ExperienceLevel {
+  const levelMatch = response.match(/(junior|mid|senior)/i);
+  const yearsMatch = response.match(/(\d+)\s*(?:year|yr)s?/i);
+  
+  return {
+    level: (levelMatch?.[1]?.toLowerCase() as 'junior' | 'mid' | 'senior') || 'mid',
+    yearsOfExperience: yearsMatch ? parseInt(yearsMatch[1]) : 0,
+    relevantAreas: extractRelevantAreas(response)
+  };
+}
+
+function extractRelevantAreas(text: string): string[] {
+  const areas: string[] = [];
+  const commonAreas = ['frontend', 'backend', 'fullstack', 'devops', 'mobile', 'data', 'ai', 'cloud'];
+  
+  commonAreas.forEach(area => {
+    if (text.toLowerCase().includes(area)) {
+      areas.push(area);
+    }
+  });
+  
+  return areas;
+}
+
+export async function analyzeResume(text: string): Promise<ResumeInsights> {
+  return analyzeResumeText(text);
+}
+
+export async function analyzePortfolio(text: string): Promise<PortfolioInsights> {
+  return analyzePortfolioText(text);
 } 
